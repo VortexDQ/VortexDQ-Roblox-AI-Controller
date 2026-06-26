@@ -75,7 +75,7 @@ class App {
     this._bindChat();
     this._bindMisc();
     await this._refresh();
-    await this._checkApiKeys();
+    this._checkApiKeys();
     this._pollPlugin();
     setInterval(() => this._pollPlugin(), 3000);
     setInterval(() => this._refresh(), 8000);
@@ -110,7 +110,7 @@ class App {
 
     this.$('send-btn').addEventListener('click', () => this._send());
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send(); }
+      if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); this._send(); }
     });
     input.addEventListener('input', () => {
       input.style.height = 'auto';
@@ -188,64 +188,48 @@ class App {
 
     this._pushMsg('user', text);
     const typingEl = this._addTyping();
-    this._setLoading(true, 'Thinking…');
+    this._setLoading(true, 'Generating…');
 
     try {
-      // Phase 1 — AI reply (shows in chat immediately after generation)
-      const genRes = await fetch('/api/generate', {
+      const res  = await fetch('/api/execute', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt:  text,
           model:   this.activeModel,
+          enhance: this.enhanced,
           history: this.aiHistory.slice(-MAX_HIST_TURN),
         }),
       });
-      const gen = await genRes.json();
+      const data = await res.json();
       typingEl.remove();
 
-      if (!genRes.ok || !gen.success) throw new Error(gen.error || 'HTTP ' + genRes.status);
+      if (!res.ok || !data.success) throw new Error(data.error || 'HTTP ' + res.status);
 
-      const chatText    = gen.message || 'Done.';
-      const commands    = gen.commands || [];
-      const hasCommands = commands.length > 0;
-      let resultMeta    = null;
+      const a   = data.analysis || {};
+      const ok  = (data.results || []).filter(r => r.success).length;
+      const tot = (data.results || []).length;
+      const ct  = a.commandCount || tot;
 
-      // Phase 2 — apply to Studio (batched for speed)
-      if (hasCommands) {
-        this._setLoading(true, `Building in Studio (${commands.length} steps)…`);
-        const execRes = await fetch('/api/apply', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ commands, enhance: this.enhanced }),
-        });
-        const exec = await execRes.json();
-        if (!execRes.ok) throw new Error(exec.error || 'Studio execution failed');
+      // Summary text
+      const summary =
+        `Applied ${ct} command${ct !== 1 ? 's' : ''} · ${a.executionTime || '?'}\n` +
+        `${(a.types || []).join(', ')}`;
 
-        const ok  = (exec.results || []).filter(r => r.success).length;
-        const tot = (exec.results || []).length;
-        const ct  = gen.analysis?.commandCount || commands.length;
-        resultMeta = {
-          ok, tot, ct,
-          complexity: gen.analysis?.complexity,
-          hasScripts: gen.analysis?.hasScripts,
-          model: gen.model || this.activeModel,
-          execTime: exec.analysis?.executionTime,
-        };
-      }
+      const msgObj = this._pushMsg('ai', summary, 'success', {
+        ok, tot, ct,
+        complexity: a.complexity,
+        hasScripts: a.hasScripts,
+        model: data.model || this.activeModel,
+      });
 
-      this._pushMsg('ai', chatText, hasCommands ? 'success' : '', resultMeta);
-
+      // Update AI context history
       this.aiHistory.push({ role: 'user', content: text });
-      this.aiHistory.push({ role: 'assistant', content: chatText });
+      this.aiHistory.push({ role: 'assistant', content: '[' + (a.types || []).join(',') + ']' });
       if (this.aiHistory.length > MAX_HIST_TURN * 2) this.aiHistory = this.aiHistory.slice(-MAX_HIST_TURN * 2);
 
-      SessionStore.update(this.session.id, this.messages, gen.model);
-
-      if (hasCommands && resultMeta) {
-        const toastType = resultMeta.ok === resultMeta.tot ? 'success' : 'error';
-        this._toast(`${resultMeta.ok}/${resultMeta.tot} applied · ${resultMeta.execTime || '?'}`, toastType);
-      }
+      SessionStore.update(this.session.id, this.messages, data.model);
+      this._toast('✓ ' + ct + ' command' + (ct !== 1 ? 's' : '') + ' applied', 'success');
 
     } catch (err) {
       typingEl.remove();
@@ -305,11 +289,10 @@ class App {
     if (msg.result) {
       const pills = document.createElement('div');
       pills.className = 'result-stats';
-      const { ok, tot, ct, complexity, hasScripts, execTime } = msg.result;
+      const { ok, tot, ct, complexity, hasScripts } = msg.result;
       pills.innerHTML =
-        `<span class="rs-pill green">✓ ${ok}/${tot} in Studio</span>` +
-        `<span class="rs-pill blue">${ct} step${ct !== 1 ? 's' : ''}</span>` +
-        (execTime ? `<span class="rs-pill">${execTime}</span>` : '') +
+        `<span class="rs-pill green">✓ ${ok}/${tot} ok</span>` +
+        `<span class="rs-pill blue">${ct} cmd${ct !== 1 ? 's' : ''}</span>` +
         (complexity ? `<span class="rs-pill">${complexity}</span>` : '') +
         (hasScripts ? `<span class="rs-pill blue">scripts</span>` : '');
       body.appendChild(pills);
@@ -593,14 +576,18 @@ class App {
       const ping = this.$('status-ping');
 
       if (conn) {
-        chip.classList.add('online');
+        chip.className = 'online';
+        // chip doesn't have id=status-chip in new markup — apply to parent
+        chip.id = 'status-chip';
+        this.$('status-chip').classList.add('online');
+        dot.style.background = '';
         lbl.textContent = 'Plugin Online';
         if (conn.lastUpdate) {
           const ms = Date.now() - new Date(conn.lastUpdate).getTime();
-          ping.textContent = ms < 15000 ? ms + 'ms' : '';
+          ping.textContent = ms < 5000 ? ms + 'ms' : '';
         }
       } else {
-        chip.classList.remove('online');
+        this.$('status-chip').classList.remove('online');
         lbl.textContent = 'Plugin Offline';
         ping.textContent = '';
       }
@@ -608,85 +595,6 @@ class App {
       this.$('status-chip').classList.remove('online');
       this.$('status-text').textContent = 'Server Offline';
     }
-  }
-
-  // ─── Settings ────────────────────────────────────────────────────────────────
-
-  async _loadSettings() {
-    try {
-      const res  = await fetch('/api/config');
-      const cfg  = await res.json();
-      this._applyKeyStatus(cfg);
-    } catch (_) {}
-  }
-
-  _applyKeyStatus(cfg) {
-    const set = (id, statusId, ok) => {
-      const el = this.$(statusId);
-      if (!el) return;
-      el.className = 'key-status ' + (ok ? 'set' : 'unset');
-      el.textContent = ok ? '✓' : '✕';
-      el.title = ok ? 'Configured' : 'Not configured';
-      // If already configured, show placeholder instead of actual key
-      const inp = this.$(id);
-      if (inp && ok && !inp.value) inp.placeholder = '••••••••••••••••••••';
-    };
-    set('key-anthropic', 'ks-anthropic', cfg.anthropic);
-    set('key-gemini',    'ks-gemini',    cfg.gemini);
-    set('key-deepseek',  'ks-deepseek',  cfg.deepseek);
-
-    const anyKey = cfg.anthropic || cfg.gemini || cfg.deepseek;
-    const banner = this.$('no-key-banner');
-    if (banner) banner.classList.toggle('hidden', anyKey);
-
-    // Badge on sidebar nav item
-    const badge = this.$('key-badge');
-    if (badge) badge.classList.toggle('hidden', anyKey);
-  }
-
-  async _saveSettings() {
-    const btn = this.$('save-keys-btn');
-    const anthropicKey = this.$('key-anthropic').value.trim();
-    const geminiKey    = this.$('key-gemini').value.trim();
-    const deepseekKey  = this.$('key-deepseek').value.trim();
-
-    btn.textContent = 'Saving…';
-    btn.disabled    = true;
-
-    try {
-      const res  = await fetch('/api/config', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anthropicKey, geminiKey, deepseekKey }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
-
-      // Clear inputs so we don't accidentally re-send
-      this.$('key-anthropic').value = '';
-      this.$('key-gemini').value    = '';
-      this.$('key-deepseek').value  = '';
-
-      await this._loadSettings();
-      await this._refresh();
-      this._toast('API keys saved', 'success');
-    } catch (e) {
-      this._toast(e.message, 'error');
-    } finally {
-      btn.textContent = 'Save Keys';
-      btn.disabled    = false;
-    }
-  }
-
-  async _checkApiKeys() {
-    try {
-      const res = await fetch('/api/config');
-      const cfg = await res.json();
-      this._applyKeyStatus(cfg);
-      if (!cfg.anthropic && !cfg.gemini && !cfg.deepseek) {
-        this._toast('No API keys set — go to Settings to add one', 'error');
-      }
-    } catch (_) {}
   }
 
   // ─── Initial refresh ──────────────────────────────────────────────────────────
@@ -727,6 +635,80 @@ class App {
       t.style.transform = 'translateY(8px)';
       setTimeout(() => t.remove(), 280);
     }, 3200);
+  }
+}
+
+  // ─── Settings ────────────────────────────────────────────────────────────────
+
+  async _checkApiKeys() {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      this._applyKeyStatus(cfg);
+      if (!cfg.anthropic && !cfg.gemini && !cfg.deepseek) {
+        this._toast('No API keys set — open Settings to add one', 'error');
+      }
+    } catch (_) {}
+  }
+
+  async _loadSettings() {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      this._applyKeyStatus(cfg);
+    } catch (_) {}
+  }
+
+  _applyKeyStatus(cfg) {
+    const mark = (inputId, statusId, ok) => {
+      const el  = this.$(statusId);
+      const inp = this.$(inputId);
+      if (!el) return;
+      el.className    = 'key-status ' + (ok ? 'set' : 'unset');
+      el.textContent  = ok ? '✓' : '✕';
+      if (inp && ok && !inp.value) inp.placeholder = '••••••••••••••••••••';
+    };
+    mark('key-anthropic', 'ks-anthropic', cfg.anthropic);
+    mark('key-gemini',    'ks-gemini',    cfg.gemini);
+    mark('key-deepseek',  'ks-deepseek',  cfg.deepseek);
+
+    const anyKey = cfg.anthropic || cfg.gemini || cfg.deepseek;
+    const banner = this.$('no-key-banner');
+    if (banner) banner.classList.toggle('hidden', anyKey);
+    const badge  = this.$('key-badge');
+    if (badge)  badge.classList.toggle('hidden', anyKey);
+  }
+
+  async _saveSettings() {
+    const btn          = this.$('save-keys-btn');
+    const anthropicKey = this.$('key-anthropic').value.trim();
+    const geminiKey    = this.$('key-gemini').value.trim();
+    const deepseekKey  = this.$('key-deepseek').value.trim();
+
+    btn.textContent = 'Saving…';
+    btn.disabled    = true;
+    try {
+      const res  = await fetch('/api/config', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ anthropicKey, geminiKey, deepseekKey }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+
+      this.$('key-anthropic').value = '';
+      this.$('key-gemini').value    = '';
+      this.$('key-deepseek').value  = '';
+
+      await this._loadSettings();
+      await this._refresh();
+      this._toast('API keys saved', 'success');
+    } catch (e) {
+      this._toast(e.message, 'error');
+    } finally {
+      btn.textContent = 'Save Keys';
+      btn.disabled    = false;
+    }
   }
 }
 
