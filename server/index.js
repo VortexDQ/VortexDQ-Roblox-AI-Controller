@@ -11,6 +11,7 @@ const ErrorTracker = require('./errorTracker');
 const GameAnalyzer = require('./gameAnalyzer');
 const GameAntivirus = require('./antivirus');
 const AutoMigrator = require('./autoMigrator');
+const AutoUpdater = require('./autoUpdater');
 const Protocol = require('./protocol');
 
 const app = express();
@@ -28,6 +29,7 @@ const smartExecutor = new SmartExecutor(commandEngine, errorTracker);
 const gameAnalyzer = new GameAnalyzer(wsManager);
 const gameAntivirus = new GameAntivirus();
 const autoMigrator = new AutoMigrator();
+const autoUpdater = new AutoUpdater();
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -272,6 +274,41 @@ app.get('/api/migrations', (req, res) => {
   res.json(autoMigrator.getStats());
 });
 
+// Version info
+app.get('/api/version', (req, res) => {
+  res.json(autoUpdater.getVersionInfo());
+});
+
+// Check for updates
+app.get('/api/version/check', async (req, res) => {
+  try {
+    const result = await autoUpdater.checkAndNotify();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get update instructions
+app.get('/api/version/update-info', async (req, res) => {
+  try {
+    const result = await autoUpdater.checkAndNotify();
+    const instructions = autoUpdater.versionManager.getUpdateInstructions();
+    res.json({
+      ...result,
+      instructions
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get changelog
+app.get('/api/version/changelog', (req, res) => {
+  const changelog = autoUpdater.versionManager.getChangelog();
+  res.type('text/markdown').send(changelog);
+});
+
 // UI root
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../ui/index.html'));
@@ -280,7 +317,12 @@ app.get('/', (req, res) => {
 // Initialize
 wsManager.initialize();
 
-server.listen(PORT, '127.0.0.1', () => {
+// Check for updates on launch
+(async () => {
+  await autoUpdater.checkAndNotify();
+})();
+
+server.listen(PORT, '127.0.0.1', async () => {
   console.log(`\n╔════════════════════════════════════════════╗`);
   console.log(`║  VortexDQ AI Controller - Ready             ║`);
   console.log(`╚════════════════════════════════════════════╝\n`);
