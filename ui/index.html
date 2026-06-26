@@ -1,156 +1,250 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VortexDQ AI Controller</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            void:    '#05050d',
+            panel:   '#0c0c18',
+            card:    '#111126',
+            border:  '#1e1e3a',
+            accent:  { DEFAULT:'#6366f1', light:'#818cf8', glow:'#a5b4fc' },
+            plasma:  '#8b5cf6',
+            neon:    '#22d3ee',
+            hot:     '#f97316',
+            ok:      '#22c55e',
+            bad:     '#ef4444',
+          },
+          fontFamily: { mono: ['JetBrains Mono','Fira Code','monospace'] },
+          animation: {
+            'pulse-slow':   'pulse 3s ease-in-out infinite',
+            'float':        'float 6s ease-in-out infinite',
+            'shimmer':      'shimmer 2s linear infinite',
+            'slide-up':     'slideUp .35s cubic-bezier(.16,1,.3,1)',
+            'fade-in':      'fadeIn .25s ease',
+            'glow-pulse':   'glowPulse 2s ease-in-out infinite',
+            'spin-slow':    'spin 3s linear infinite',
+            'bar-fill':     'barFill .8s cubic-bezier(.16,1,.3,1) forwards',
+          },
+          keyframes: {
+            float:     { '0%,100%':{ transform:'translateY(0)' }, '50%':{ transform:'translateY(-8px)' } },
+            shimmer:   { '0%':{ backgroundPosition:'-200% 0' }, '100%':{ backgroundPosition:'200% 0' } },
+            slideUp:   { from:{ opacity:0, transform:'translateY(14px)' }, to:{ opacity:1, transform:'none' } },
+            fadeIn:    { from:{ opacity:0 }, to:{ opacity:1 } },
+            glowPulse: { '0%,100%':{ boxShadow:'0 0 8px #6366f133' }, '50%':{ boxShadow:'0 0 24px #6366f166' } },
+            barFill:   { from:{ width:'0%' }, to:{ width:'var(--target-w)' } },
+          },
+          backdropBlur: { xs:'2px' },
+          boxShadow: {
+            glow:   '0 0 20px #6366f140',
+            'glow-lg':'0 0 40px #6366f150',
+            panel:  '0 4px 32px rgba(0,0,0,.6)',
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <div id="app">
-    <!-- Sidebar -->
-    <nav id="sidebar">
-      <div id="sidebar-brand">
-        <div id="brand-logo">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="#6366f1" opacity="0.2" stroke="#6366f1" stroke-width="1.5"/>
-            <polygon points="14,7 21,11 21,19 14,23 7,19 7,11" fill="#6366f1" opacity="0.5"/>
-            <circle cx="14" cy="14" r="3" fill="#a5b4fc"/>
-          </svg>
+<body class="bg-void text-white font-['Inter'] overflow-hidden h-screen select-none">
+
+  <!-- Animated BG -->
+  <div id="bg-canvas" class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-[#0a0a1e] via-[#05050d] to-[#0d0820]"></div>
+    <!-- orbs -->
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <!-- grid -->
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Layout -->
+  <div class="relative z-10 flex h-screen">
+
+    <!-- ═══ SIDEBAR ═══ -->
+    <aside id="sidebar" class="flex flex-col w-[230px] min-w-[230px] border-r border-border/50 bg-panel/80 backdrop-blur-sm">
+
+      <!-- Brand -->
+      <div class="p-5 border-b border-border/40">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-plasma flex items-center justify-center shadow-glow animate-glow-pulse">
+            <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
+              <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="white" opacity=".25"/>
+              <polygon points="14,7 21,11 21,19 14,23 7,19 7,11" fill="white" opacity=".6"/>
+              <circle cx="14" cy="14" r="3.5" fill="white"/>
+            </svg>
+          </div>
+          <div>
+            <div class="text-sm font-bold tracking-wide text-white">VortexDQ</div>
+            <div class="text-[10px] text-accent-glow/70 font-mono">AI Controller</div>
+          </div>
         </div>
-        <div>
-          <div id="brand-name">VortexDQ</div>
-          <div id="brand-sub">AI Controller</div>
+
+        <!-- Plugin Status -->
+        <div id="pluginPill" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-card/60 border border-border/50">
+          <span id="pluginDot" class="w-2 h-2 rounded-full bg-bad transition-all duration-500"></span>
+          <span id="pluginLabel" class="text-xs text-white/60">Connecting…</span>
+          <span id="pingBadge" class="ml-auto text-[10px] font-mono text-white/30 hidden"></span>
         </div>
       </div>
 
-      <div id="plugin-pill">
-        <span class="pill-dot" id="pluginDot"></span>
-        <span id="pluginStatus">Connecting...</span>
-      </div>
-
-      <div id="nav-links">
+      <!-- Nav -->
+      <nav class="flex-1 p-3 space-y-1">
         <button class="nav-btn active" data-tab="chat">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           Chat
+          <span class="ml-auto" id="chat-badge"></span>
         </button>
         <button class="nav-btn" data-tab="models">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
           Models
         </button>
         <button class="nav-btn" data-tab="stats">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           Stats
         </button>
         <button class="nav-btn" data-tab="errors">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           Errors
+          <span id="err-count-badge" class="ml-auto hidden text-[10px] bg-bad/20 text-bad border border-bad/30 rounded-full px-1.5 py-0.5"></span>
         </button>
-      </div>
+      </nav>
 
-      <div id="sidebar-footer">
-        <button class="icon-btn" id="clearChatBtn" title="Clear chat">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+      <!-- Footer -->
+      <div class="p-3 border-t border-border/40 space-y-2">
+        <button id="clearChatBtn" class="w-full text-left text-xs text-white/40 hover:text-white/70 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-all">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          Clear chat
         </button>
-        <div id="version-badge">v2.0.0</div>
+        <div class="flex items-center justify-between px-2">
+          <span class="text-[10px] text-white/25 font-mono">v2.0.0</span>
+          <span id="activeBadge" class="text-[10px] text-accent-light bg-accent/10 border border-accent/25 rounded-full px-2 py-0.5">—</span>
+        </div>
       </div>
-    </nav>
+    </aside>
 
-    <!-- Main -->
-    <main id="main">
+    <!-- ═══ MAIN ═══ -->
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-      <!-- ── CHAT TAB ── -->
-      <section class="tab-pane active" id="tab-chat">
-        <div id="chat-header">
+      <!-- ── CHAT ── -->
+      <section class="tab-pane active flex flex-col h-full" id="tab-chat">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-7 py-4 border-b border-border/40 bg-panel/50 backdrop-blur-xs flex-shrink-0">
           <div>
-            <div class="pane-title">AI Chat</div>
-            <div class="pane-sub">Talk to your Roblox game in plain English</div>
+            <h1 class="text-base font-semibold text-white">AI Chat</h1>
+            <p class="text-xs text-white/40 mt-0.5">Build Roblox games in plain English</p>
           </div>
-          <div id="model-badge-wrap">
-            <span class="label">Model</span>
-            <span id="activeBadge" class="badge-pill">—</span>
+          <div class="flex items-center gap-3">
+            <div class="status-bar-row text-xs text-white/30 font-mono hidden" id="lastExecInfo"></div>
+            <button onclick="document.getElementById('tab-chat').querySelector('#chatForm').querySelector('textarea').focus()" class="btn-ghost text-xs">New prompt</button>
           </div>
         </div>
 
-        <div id="messages" aria-live="polite"></div>
+        <!-- Messages -->
+        <div id="messages" class="flex-1 overflow-y-auto px-7 py-5 space-y-4 scroll-smooth"></div>
 
-        <div id="chat-input-area">
-          <div id="chat-controls">
-            <label class="toggle-label">
-              <input type="checkbox" id="enhanceToggle" checked>
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              <span>Enhance</span>
+        <!-- Input -->
+        <div class="flex-shrink-0 bg-panel/70 backdrop-blur-sm border-t border-border/40 px-7 py-4">
+          <!-- Quick prompts -->
+          <div class="flex gap-2 mb-3 flex-wrap" id="quick-prompts">
+            <button class="quick-chip" data-p="Create a detailed futuristic map with neon accents and glowing lights">🗺 Futuristic map</button>
+            <button class="quick-chip" data-p="Build a professional game lobby with a GUI menu and animated title">🏛 Game lobby</button>
+            <button class="quick-chip" data-p="Create a complete round-based obby game with checkpoints, death floor, and a timer">⏱ Full obby game</button>
+            <button class="quick-chip" data-p="Add a smooth combat system with hitboxes, animations, and a health bar GUI">⚔ Combat system</button>
+          </div>
+          <div class="flex gap-2 items-end">
+            <label class="enhance-toggle flex items-center gap-2 cursor-pointer" title="Enhance output quality">
+              <input type="checkbox" id="enhanceToggle" checked class="sr-only">
+              <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              <span class="text-xs text-white/40">Enhance</span>
             </label>
-          </div>
-          <form id="chatForm">
-            <textarea id="userInput" placeholder="Ask the AI to build something… (Ctrl+Enter to send)" rows="1"></textarea>
-            <button type="submit" id="sendBtn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
-          </form>
-        </div>
-      </section>
-
-      <!-- ── MODELS TAB ── -->
-      <section class="tab-pane" id="tab-models">
-        <div class="pane-title">AI Models</div>
-        <div class="pane-sub">Select which model powers the controller</div>
-        <div id="models-grid"></div>
-      </section>
-
-      <!-- ── STATS TAB ── -->
-      <section class="tab-pane" id="tab-stats">
-        <div class="pane-title">Performance</div>
-        <div class="pane-sub">Real-time execution metrics</div>
-        <div id="stat-cards">
-          <div class="stat-card">
-            <div class="stat-label">Total Executions</div>
-            <div class="stat-val" id="s-executions">0</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Success Rate</div>
-            <div class="stat-val" id="s-success">—</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Avg Duration</div>
-            <div class="stat-val" id="s-duration">—</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Plugin</div>
-            <div class="stat-val" id="s-plugin">—</div>
+            <form id="chatForm" class="flex-1 flex items-end gap-2 bg-card/80 border border-border/60 rounded-xl px-4 py-2.5 focus-within:border-accent/50 focus-within:shadow-glow transition-all duration-300">
+              <textarea
+                id="userInput"
+                rows="1"
+                placeholder="Ask the AI to build something… (Ctrl+Enter)"
+                class="flex-1 bg-transparent resize-none outline-none text-sm text-white placeholder-white/25 max-h-36 font-['Inter']"
+              ></textarea>
+              <button type="submit" id="sendBtn"
+                class="w-9 h-9 rounded-lg bg-gradient-to-br from-accent to-plasma flex items-center justify-center flex-shrink-0 hover:shadow-glow hover:scale-105 active:scale-95 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100 disabled:shadow-none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </form>
           </div>
         </div>
-        <div class="section-title">Recent Executions</div>
-        <div id="recent-exec"></div>
       </section>
 
-      <!-- ── ERRORS TAB ── -->
-      <section class="tab-pane" id="tab-errors">
-        <div id="errors-header">
+      <!-- ── MODELS ── -->
+      <section class="tab-pane hidden flex-col h-full overflow-y-auto" id="tab-models">
+        <div class="px-7 py-5 border-b border-border/40 flex-shrink-0">
+          <h1 class="text-base font-semibold text-white">AI Models</h1>
+          <p class="text-xs text-white/40 mt-0.5">Select which model powers the controller</p>
+        </div>
+        <div id="models-grid" class="p-7 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </section>
+
+      <!-- ── STATS ── -->
+      <section class="tab-pane hidden flex-col h-full overflow-y-auto" id="tab-stats">
+        <div class="px-7 py-5 border-b border-border/40 flex-shrink-0">
+          <h1 class="text-base font-semibold text-white">Performance</h1>
+          <p class="text-xs text-white/40 mt-0.5">Real-time execution metrics</p>
+        </div>
+        <div class="p-7 space-y-6">
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="stat-cards">
+            <div class="stat-card"><div class="stat-label">Executions</div><div class="stat-val" id="s-executions">0</div></div>
+            <div class="stat-card"><div class="stat-label">Success Rate</div><div class="stat-val" id="s-success">—</div></div>
+            <div class="stat-card"><div class="stat-label">Avg Duration</div><div class="stat-val" id="s-duration">—</div></div>
+            <div class="stat-card"><div class="stat-label">Plugin</div><div class="stat-val" id="s-plugin">—</div></div>
+          </div>
           <div>
-            <div class="pane-title">Error Log</div>
-            <div class="pane-sub">Tracked issues and suggested fixes</div>
+            <div class="text-[11px] font-semibold text-white/30 uppercase tracking-widest mb-3">Recent Executions</div>
+            <div id="recent-exec" class="space-y-2"></div>
           </div>
-          <button class="btn-outline" id="exportBtn">Export CSV</button>
         </div>
-        <div id="error-stat-row">
-          <div class="estat"><span id="e-total">0</span><span>Total</span></div>
-          <div class="estat accent-green"><span id="e-fixed">0</span><span>Fixed</span></div>
-          <div class="estat accent-red"><span id="e-unfixed">0</span><span>Unfixed</span></div>
-          <div class="estat accent-orange"><span id="e-critical">0</span><span>Critical</span></div>
+      </section>
+
+      <!-- ── ERRORS ── -->
+      <section class="tab-pane hidden flex-col h-full overflow-y-auto" id="tab-errors">
+        <div class="px-7 py-5 border-b border-border/40 flex-shrink-0 flex items-center justify-between">
+          <div>
+            <h1 class="text-base font-semibold text-white">Error Log</h1>
+            <p class="text-xs text-white/40 mt-0.5">Tracked issues and suggested fixes</p>
+          </div>
+          <button id="exportBtn" class="btn-ghost text-xs">Export CSV</button>
         </div>
-        <div id="error-list"></div>
+        <div class="p-7 space-y-6">
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="estat-card"><div class="text-2xl font-bold" id="e-total">0</div><div class="estat-label">Total</div></div>
+            <div class="estat-card border-ok/20"><div class="text-2xl font-bold text-ok" id="e-fixed">0</div><div class="estat-label">Fixed</div></div>
+            <div class="estat-card border-bad/20"><div class="text-2xl font-bold text-bad" id="e-unfixed">0</div><div class="estat-label">Unfixed</div></div>
+            <div class="estat-card border-hot/20"><div class="text-2xl font-bold text-hot" id="e-critical">0</div><div class="estat-label">Critical</div></div>
+          </div>
+          <div id="error-list" class="space-y-2"></div>
+        </div>
       </section>
 
     </main>
   </div>
 
-  <!-- Toast container -->
-  <div id="toasts"></div>
+  <!-- Toasts -->
+  <div id="toasts" class="fixed bottom-6 right-6 flex flex-col gap-2 z-50 pointer-events-none"></div>
 
-  <!-- Spinner overlay -->
-  <div id="spinner" hidden>
-    <div class="spin-ring"></div>
+  <!-- Spinner -->
+  <div id="spinner" class="fixed inset-0 bg-void/70 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="flex flex-col items-center gap-4">
+      <div class="w-12 h-12 rounded-full border-2 border-border border-t-accent animate-spin"></div>
+      <div class="text-xs text-white/40 font-mono animate-pulse" id="spinnerMsg">Processing…</div>
+    </div>
   </div>
 
   <script src="app.js"></script>
