@@ -1480,264 +1480,445 @@ function Controller:_addHistory(entry)
 end
 
 -- ============================================================
---  GUI BUILDER
+--  GUI BUILDER  (modern redesign)
 -- ============================================================
 
+local GUI_COLORS = {
+	bg          = Color3.fromRGB(13, 13, 18),
+	bgPanel     = Color3.fromRGB(20, 20, 28),
+	bgCard      = Color3.fromRGB(26, 26, 38),
+	bgCardHover = Color3.fromRGB(32, 32, 46),
+	accent      = Color3.fromRGB(99, 102, 241),  -- indigo
+	accentGlow  = Color3.fromRGB(129, 140, 248),
+	accentDim   = Color3.fromRGB(55, 58, 140),
+	green       = Color3.fromRGB(52, 211, 153),
+	greenDim    = Color3.fromRGB(20, 80, 58),
+	red         = Color3.fromRGB(248, 113, 113),
+	redDim      = Color3.fromRGB(90, 25, 25),
+	yellow      = Color3.fromRGB(251, 191, 36),
+	yellowDim   = Color3.fromRGB(90, 68, 10),
+	blue        = Color3.fromRGB(96, 165, 250),
+	purple      = Color3.fromRGB(192, 132, 252),
+	textPrimary = Color3.fromRGB(241, 241, 255),
+	textSecond  = Color3.fromRGB(148, 148, 180),
+	textMuted   = Color3.fromRGB(75, 75, 100),
+	border      = Color3.fromRGB(38, 38, 56),
+	borderBright= Color3.fromRGB(60, 60, 88),
+	logBg       = Color3.fromRGB(10, 10, 16),
+}
+
+local MAX_LOG_ROWS = 80
+
 local function buildGui(pluginRef)
-	-- Create the dock widget
 	local info = DockWidgetPluginGuiInfo.new(
 		Enum.InitialDockState.Right,
-		true,   -- initially enabled
-		false,  -- don't override saved state
-		300, 460,
-		240, 300
+		true,
+		false,
+		340, 600,
+		280, 400
 	)
-	local dockGui   = pluginRef:CreateDockWidgetPluginGui(CONFIG.PLUGIN_ID, info)
-	dockGui.Title   = "VortexDQ AI Controller"
+	local dockGui = pluginRef:CreateDockWidgetPluginGui(CONFIG.PLUGIN_ID, info)
+	dockGui.Title = "VortexDQ AI Controller"
 	dockGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-	-- Root frame
+	-- ── Root ────────────────────────────────────────────────
 	local root = Instance.new("Frame")
 	root.Name             = "Root"
 	root.Size             = UDim2.new(1, 0, 1, 0)
-	root.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+	root.BackgroundColor3 = GUI_COLORS.bg
 	root.BorderSizePixel  = 0
+	root.ClipsDescendants = true
 	root.Parent           = dockGui
 
-	-- Header bar
+	-- ── Header ──────────────────────────────────────────────
 	local header = Instance.new("Frame")
 	header.Name             = "Header"
-	header.Size             = UDim2.new(1, 0, 0, 44)
-	header.BackgroundColor3 = Color3.fromRGB(26, 26, 36)
+	header.Size             = UDim2.new(1, 0, 0, 56)
+	header.BackgroundColor3 = GUI_COLORS.bgCard
 	header.BorderSizePixel  = 0
 	header.Parent           = root
 
-	local headerLine = Instance.new("Frame")
-	headerLine.Name             = "HeaderLine"
-	headerLine.Size             = UDim2.new(1, 0, 0, 2)
-	headerLine.Position         = UDim2.new(0, 0, 1, -2)
-	headerLine.BackgroundColor3 = Color3.fromRGB(80, 120, 255)
-	headerLine.BorderSizePixel  = 0
-	headerLine.Parent           = header
+	-- top accent line
+	local accentBar = Instance.new("Frame")
+	accentBar.Size             = UDim2.new(1, 0, 0, 3)
+	accentBar.BackgroundColor3 = GUI_COLORS.accent
+	accentBar.BorderSizePixel  = 0
+	accentBar.Parent           = header
 
-	local logoLabel = Instance.new("TextLabel")
-	logoLabel.Name             = "Logo"
-	logoLabel.Size             = UDim2.new(0, 140, 1, 0)
-	logoLabel.Position         = UDim2.new(0, 10, 0, 0)
-	logoLabel.BackgroundTransparency = 1
-	logoLabel.TextColor3       = Color3.fromRGB(80, 140, 255)
-	logoLabel.TextSize         = 15
-	logoLabel.Font             = Enum.Font.GothamBold
-	logoLabel.Text             = "VortexDQ AI"
-	logoLabel.TextXAlignment   = Enum.TextXAlignment.Left
-	logoLabel.Parent           = header
+	-- logo text
+	local logo = Instance.new("TextLabel")
+	logo.Size             = UDim2.new(0, 160, 0, 24)
+	logo.Position         = UDim2.new(0, 14, 0, 9)
+	logo.BackgroundTransparency = 1
+	logo.TextColor3       = GUI_COLORS.textPrimary
+	logo.TextSize         = 17
+	logo.Font             = Enum.Font.GothamBold
+	logo.Text             = "VortexDQ AI"
+	logo.TextXAlignment   = Enum.TextXAlignment.Left
+	logo.Parent           = header
 
-	local versionLabel = Instance.new("TextLabel")
-	versionLabel.Name             = "Version"
-	versionLabel.Size             = UDim2.new(0, 60, 0, 16)
-	versionLabel.Position         = UDim2.new(0, 10, 0, 26)
-	versionLabel.BackgroundTransparency = 1
-	versionLabel.TextColor3       = Color3.fromRGB(100, 100, 130)
-	versionLabel.TextSize         = 10
-	versionLabel.Font             = Enum.Font.Gotham
-	versionLabel.Text             = "v2.0.0"
-	versionLabel.TextXAlignment   = Enum.TextXAlignment.Left
-	versionLabel.Parent           = header
+	-- version badge
+	local verBadge = Instance.new("Frame")
+	verBadge.Size             = UDim2.new(0, 42, 0, 16)
+	verBadge.Position         = UDim2.new(0, 14, 0, 34)
+	verBadge.BackgroundColor3 = GUI_COLORS.accentDim
+	verBadge.BorderSizePixel  = 0
+	verBadge.Parent           = header
+	Instance.new("UICorner", verBadge).CornerRadius = UDim.new(0, 4)
 
-	-- Status indicator dot
+	local verText = Instance.new("TextLabel")
+	verText.Size             = UDim2.new(1, 0, 1, 0)
+	verText.BackgroundTransparency = 1
+	verText.TextColor3       = GUI_COLORS.accentGlow
+	verText.TextSize         = 10
+	verText.Font             = Enum.Font.GothamBold
+	verText.Text             = "v2.0.0"
+	verText.Parent           = verBadge
+
+	-- status pill (right side of header)
+	local statusPill = Instance.new("Frame")
+	statusPill.Name             = "StatusPill"
+	statusPill.Size             = UDim2.new(0, 90, 0, 26)
+	statusPill.Position         = UDim2.new(1, -104, 0, 15)
+	statusPill.BackgroundColor3 = GUI_COLORS.redDim
+	statusPill.BorderSizePixel  = 0
+	statusPill.Parent           = header
+	Instance.new("UICorner", statusPill).CornerRadius = UDim.new(0, 13)
+
 	local statusDot = Instance.new("Frame")
-	statusDot.Name             = "StatusDot"
-	statusDot.Size             = UDim2.new(0, 10, 0, 10)
-	statusDot.Position         = UDim2.new(1, -52, 0.5, -5)
-	statusDot.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+	statusDot.Name             = "Dot"
+	statusDot.Size             = UDim2.new(0, 8, 0, 8)
+	statusDot.Position         = UDim2.new(0, 10, 0.5, -4)
+	statusDot.BackgroundColor3 = GUI_COLORS.red
 	statusDot.BorderSizePixel  = 0
-	statusDot.Parent           = header
-
-	local dotCorner = Instance.new("UICorner")
-	dotCorner.CornerRadius = UDim.new(1, 0)
-	dotCorner.Parent       = statusDot
+	statusDot.Parent           = statusPill
+	Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
 
 	local statusWord = Instance.new("TextLabel")
-	statusWord.Name             = "StatusWord"
-	statusWord.Size             = UDim2.new(0, 80, 1, 0)
-	statusWord.Position         = UDim2.new(1, -86, 0, 0)
+	statusWord.Name             = "Word"
+	statusWord.Size             = UDim2.new(1, -26, 1, 0)
+	statusWord.Position         = UDim2.new(0, 24, 0, 0)
 	statusWord.BackgroundTransparency = 1
-	statusWord.TextColor3       = Color3.fromRGB(180, 60, 60)
+	statusWord.TextColor3       = GUI_COLORS.red
 	statusWord.TextSize         = 11
 	statusWord.Font             = Enum.Font.GothamBold
 	statusWord.Text             = "OFFLINE"
-	statusWord.TextXAlignment   = Enum.TextXAlignment.Right
-	statusWord.Parent           = header
+	statusWord.TextXAlignment   = Enum.TextXAlignment.Left
+	statusWord.Parent           = statusPill
 
-	-- Server URL label
-	local urlBar = Instance.new("Frame")
-	urlBar.Name             = "UrlBar"
-	urlBar.Size             = UDim2.new(1, 0, 0, 28)
-	urlBar.Position         = UDim2.new(0, 0, 0, 44)
-	urlBar.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
-	urlBar.BorderSizePixel  = 0
-	urlBar.Parent           = root
+	-- ── Server URL strip ────────────────────────────────────
+	local urlStrip = Instance.new("Frame")
+	urlStrip.Size             = UDim2.new(1, 0, 0, 32)
+	urlStrip.Position         = UDim2.new(0, 0, 0, 56)
+	urlStrip.BackgroundColor3 = GUI_COLORS.bgPanel
+	urlStrip.BorderSizePixel  = 0
+	urlStrip.Parent           = root
+
+	local urlIcon = Instance.new("TextLabel")
+	urlIcon.Size             = UDim2.new(0, 20, 1, 0)
+	urlIcon.Position         = UDim2.new(0, 10, 0, 0)
+	urlIcon.BackgroundTransparency = 1
+	urlIcon.TextColor3       = GUI_COLORS.textMuted
+	urlIcon.TextSize         = 13
+	urlIcon.Font             = Enum.Font.GothamBold
+	urlIcon.Text             = "⬡"
+	urlIcon.Parent           = urlStrip
 
 	local urlLabel = Instance.new("TextLabel")
-	urlLabel.Name             = "UrlLabel"
-	urlLabel.Size             = UDim2.new(1, -12, 1, 0)
-	urlLabel.Position         = UDim2.new(0, 6, 0, 0)
+	urlLabel.Size             = UDim2.new(1, -38, 1, 0)
+	urlLabel.Position         = UDim2.new(0, 30, 0, 0)
 	urlLabel.BackgroundTransparency = 1
-	urlLabel.TextColor3       = Color3.fromRGB(100, 100, 140)
+	urlLabel.TextColor3       = GUI_COLORS.textMuted
 	urlLabel.TextSize         = 11
 	urlLabel.Font             = Enum.Font.Code
 	urlLabel.Text             = CONFIG.SERVER_URL
 	urlLabel.TextXAlignment   = Enum.TextXAlignment.Left
 	urlLabel.TextTruncate     = Enum.TextTruncate.AtEnd
-	urlLabel.Parent           = urlBar
+	urlLabel.Parent           = urlStrip
 
-	-- Stats area
-	local statsFrame = Instance.new("Frame")
-	statsFrame.Name             = "Stats"
-	statsFrame.Size             = UDim2.new(1, 0, 0, 110)
-	statsFrame.Position         = UDim2.new(0, 0, 0, 72)
-	statsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-	statsFrame.BorderSizePixel  = 0
-	statsFrame.Parent           = root
+	-- bottom border on url strip
+	local urlBorder = Instance.new("Frame")
+	urlBorder.Size             = UDim2.new(1, 0, 0, 1)
+	urlBorder.Position         = UDim2.new(0, 0, 1, -1)
+	urlBorder.BackgroundColor3 = GUI_COLORS.border
+	urlBorder.BorderSizePixel  = 0
+	urlBorder.Parent           = urlStrip
 
-	local statsPadding = Instance.new("UIPadding")
-	statsPadding.PaddingLeft   = UDim.new(0, 10)
-	statsPadding.PaddingTop    = UDim.new(0, 8)
-	statsPadding.PaddingRight  = UDim.new(0, 10)
-	statsPadding.Parent        = statsFrame
+	-- ── Stats cards ─────────────────────────────────────────
+	-- Two rows of 3 cards each
+	local CARD_TOP    = 96
+	local CARD_H      = 58
+	local CARD_GAP    = 6
+	local CARD_PAD    = 10
+	local CARD_W      = (1/3)
 
-	local statsLayout = Instance.new("UIListLayout")
-	statsLayout.FillDirection = Enum.FillDirection.Vertical
-	statsLayout.Padding       = UDim.new(0, 4)
-	statsLayout.Parent        = statsFrame
+	local statRefs = {}  -- { valueLabel, pillFrame } keyed by name
 
-	local function makeStatRow(name, labelText)
-		local row = Instance.new("Frame")
-		row.Name             = name .. "Row"
-		row.Size             = UDim2.new(1, 0, 0, 18)
-		row.BackgroundTransparency = 1
-		row.Parent           = statsFrame
+	local cardDefs = {
+		{ key = "sent",      label = "SENT",      col = 0 },
+		{ key = "recv",      label = "RECEIVED",  col = 1 },
+		{ key = "queue",     label = "QUEUED",    col = 2 },
+		{ key = "ok",        label = "SUCCEEDED", col = 0 },
+		{ key = "failed",    label = "FAILED",    col = 1 },
+		{ key = "dropped",   label = "DROPPED",   col = 2 },
+	}
+
+	local function makeCard(def, row)
+		local card = Instance.new("Frame")
+		card.Name             = def.key .. "Card"
+		card.Size             = UDim2.new(CARD_W, -(CARD_PAD + CARD_GAP/2), 0, CARD_H)
+		card.Position         = UDim2.new(
+			CARD_W * def.col, CARD_PAD + (def.col > 0 and CARD_GAP/2 or 0),
+			0, CARD_TOP + row * (CARD_H + CARD_GAP)
+		)
+		card.BackgroundColor3 = GUI_COLORS.bgCard
+		card.BorderSizePixel  = 0
+		card.Parent           = root
+		Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+		-- left accent strip
+		local strip = Instance.new("Frame")
+		strip.Size             = UDim2.new(0, 3, 1, -16)
+		strip.Position         = UDim2.new(0, 0, 0, 8)
+		strip.BackgroundColor3 = GUI_COLORS.accentDim
+		strip.BorderSizePixel  = 0
+		strip.Parent           = card
+		Instance.new("UICorner", strip).CornerRadius = UDim.new(0, 2)
 
 		local lbl = Instance.new("TextLabel")
-		lbl.Name             = "Label"
-		lbl.Size             = UDim2.new(0.55, 0, 1, 0)
+		lbl.Size             = UDim2.new(1, -10, 0, 14)
+		lbl.Position         = UDim2.new(0, 10, 0, 8)
 		lbl.BackgroundTransparency = 1
-		lbl.TextColor3       = Color3.fromRGB(100, 100, 130)
-		lbl.TextSize         = 11
-		lbl.Font             = Enum.Font.Gotham
-		lbl.Text             = labelText
+		lbl.TextColor3       = GUI_COLORS.textMuted
+		lbl.TextSize         = 9
+		lbl.Font             = Enum.Font.GothamBold
+		lbl.Text             = def.label
 		lbl.TextXAlignment   = Enum.TextXAlignment.Left
-		lbl.Parent           = row
+		lbl.Parent           = card
 
 		local val = Instance.new("TextLabel")
 		val.Name             = "Value"
-		val.Size             = UDim2.new(0.45, 0, 1, 0)
-		val.Position         = UDim2.new(0.55, 0, 0, 0)
+		val.Size             = UDim2.new(1, -10, 0, 26)
+		val.Position         = UDim2.new(0, 10, 0, 24)
 		val.BackgroundTransparency = 1
-		val.TextColor3       = Color3.fromRGB(200, 200, 220)
-		val.TextSize         = 11
+		val.TextColor3       = GUI_COLORS.textPrimary
+		val.TextSize         = 20
 		val.Font             = Enum.Font.GothamBold
-		val.Text             = "—"
-		val.TextXAlignment   = Enum.TextXAlignment.Right
-		val.Parent           = row
+		val.Text             = "0"
+		val.TextXAlignment   = Enum.TextXAlignment.Left
+		val.Parent           = card
 
-		return val
+		statRefs[def.key] = { val = val, strip = strip }
+		return card
 	end
 
-	local sentVal      = makeStatRow("Sent",      "Messages sent")
-	local receivedVal  = makeStatRow("Received",  "Messages recv")
-	local queueVal     = makeStatRow("Queue",     "Queue size")
-	local droppedVal   = makeStatRow("Dropped",   "Dropped")
-	local succeededVal = makeStatRow("Succeeded", "Commands ok")
-	local failedVal    = makeStatRow("Failed",    "Commands failed")
+	for i, def in ipairs(cardDefs) do
+		makeCard(def, i <= 3 and 0 or 1)
+	end
 
-	-- Divider
-	local divider = Instance.new("Frame")
-	divider.Name             = "Divider"
-	divider.Size             = UDim2.new(1, -20, 0, 1)
-	divider.Position         = UDim2.new(0, 10, 0, 185)
-	divider.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-	divider.BorderSizePixel  = 0
-	divider.Parent           = root
+	local CARDS_BOTTOM = CARD_TOP + 2 * (CARD_H + CARD_GAP)
 
-	-- Log area
-	local logLabel = Instance.new("TextLabel")
-	logLabel.Name             = "LogHeader"
-	logLabel.Size             = UDim2.new(1, -20, 0, 20)
-	logLabel.Position         = UDim2.new(0, 10, 0, 193)
-	logLabel.BackgroundTransparency = 1
-	logLabel.TextColor3       = Color3.fromRGB(80, 80, 110)
-	logLabel.TextSize         = 10
-	logLabel.Font             = Enum.Font.GothamBold
-	logLabel.Text             = "RECENT LOG"
-	logLabel.TextXAlignment   = Enum.TextXAlignment.Left
-	logLabel.Parent           = root
+	-- ── Log section ─────────────────────────────────────────
+	local logTop = CARDS_BOTTOM + 10
 
+	-- Log header bar
+	local logHeader = Instance.new("Frame")
+	logHeader.Size             = UDim2.new(1, 0, 0, 30)
+	logHeader.Position         = UDim2.new(0, 0, 0, logTop)
+	logHeader.BackgroundColor3 = GUI_COLORS.bgCard
+	logHeader.BorderSizePixel  = 0
+	logHeader.Parent           = root
+
+	local logHeaderBorder = Instance.new("Frame")
+	logHeaderBorder.Size             = UDim2.new(1, 0, 0, 1)
+	logHeaderBorder.Position         = UDim2.new(0, 0, 1, -1)
+	logHeaderBorder.BackgroundColor3 = GUI_COLORS.border
+	logHeaderBorder.BorderSizePixel  = 0
+	logHeaderBorder.Parent           = logHeader
+
+	local logTitleDot = Instance.new("Frame")
+	logTitleDot.Size             = UDim2.new(0, 7, 0, 7)
+	logTitleDot.Position         = UDim2.new(0, 14, 0.5, -3)
+	logTitleDot.BackgroundColor3 = GUI_COLORS.accent
+	logTitleDot.BorderSizePixel  = 0
+	logTitleDot.Parent           = logHeader
+	Instance.new("UICorner", logTitleDot).CornerRadius = UDim.new(1, 0)
+
+	local logTitle = Instance.new("TextLabel")
+	logTitle.Size             = UDim2.new(0, 100, 1, 0)
+	logTitle.Position         = UDim2.new(0, 28, 0, 0)
+	logTitle.BackgroundTransparency = 1
+	logTitle.TextColor3       = GUI_COLORS.textSecond
+	logTitle.TextSize         = 11
+	logTitle.Font             = Enum.Font.GothamBold
+	logTitle.Text             = "LIVE LOG"
+	logTitle.TextXAlignment   = Enum.TextXAlignment.Left
+	logTitle.Parent           = logHeader
+
+	local logCountLabel = Instance.new("TextLabel")
+	logCountLabel.Name             = "LogCount"
+	logCountLabel.Size             = UDim2.new(0, 60, 1, 0)
+	logCountLabel.Position         = UDim2.new(1, -70, 0, 0)
+	logCountLabel.BackgroundTransparency = 1
+	logCountLabel.TextColor3       = GUI_COLORS.textMuted
+	logCountLabel.TextSize         = 10
+	logCountLabel.Font             = Enum.Font.Gotham
+	logCountLabel.Text             = "0 entries"
+	logCountLabel.TextXAlignment   = Enum.TextXAlignment.Right
+	logCountLabel.Parent           = logHeader
+
+	-- Scrolling log
 	local logScroll = Instance.new("ScrollingFrame")
-	logScroll.Name             = "LogScroll"
-	logScroll.Size             = UDim2.new(1, 0, 1, -215)
-	logScroll.Position         = UDim2.new(0, 0, 0, 215)
-	logScroll.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
-	logScroll.BorderSizePixel  = 0
-	logScroll.ScrollBarThickness = 4
-	logScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 90)
-	logScroll.CanvasSize       = UDim2.new(0, 0, 0, 0)
-	logScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	logScroll.Parent           = root
+	logScroll.Name                  = "LogScroll"
+	logScroll.Size                  = UDim2.new(1, 0, 1, -(logTop + 30))
+	logScroll.Position              = UDim2.new(0, 0, 0, logTop + 30)
+	logScroll.BackgroundColor3      = GUI_COLORS.logBg
+	logScroll.BorderSizePixel       = 0
+	logScroll.ScrollBarThickness    = 3
+	logScroll.ScrollBarImageColor3  = GUI_COLORS.accentDim
+	logScroll.CanvasSize            = UDim2.new(0, 0, 0, 0)
+	logScroll.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+	logScroll.ScrollingDirection    = Enum.ScrollingDirection.Y
+	logScroll.ElasticBehavior       = Enum.ElasticBehavior.Never
+	logScroll.Parent                = root
 
-	local logLayout = Instance.new("UIListLayout")
-	logLayout.FillDirection = Enum.FillDirection.Vertical
-	logLayout.Padding       = UDim.new(0, 1)
-	logLayout.Parent        = logScroll
+	local logList = Instance.new("UIListLayout")
+	logList.FillDirection  = Enum.FillDirection.Vertical
+	logList.SortOrder      = Enum.SortOrder.LayoutOrder
+	logList.Padding        = UDim.new(0, 0)
+	logList.Parent         = logScroll
 
 	local logPad = Instance.new("UIPadding")
-	logPad.PaddingLeft  = UDim.new(0, 8)
-	logPad.PaddingRight = UDim.new(0, 8)
-	logPad.PaddingTop   = UDim.new(0, 4)
-	logPad.Parent       = logScroll
+	logPad.PaddingTop    = UDim.new(0, 4)
+	logPad.PaddingBottom = UDim.new(0, 4)
+	logPad.Parent        = logScroll
 
-	local MAX_LOG_ROWS = 30
-	local logRows      = {}
+	-- ── Log row factory ─────────────────────────────────────
+	local logRows    = {}
+	local totalEntries = 0
 
-	local function getLogColor(level)
-		if level == "ERROR" then return Color3.fromRGB(255, 100, 100)
-		elseif level == "WARN"  then return Color3.fromRGB(255, 200, 80)
-		elseif level == "DEBUG" then return Color3.fromRGB(120, 120, 160)
-		else return Color3.fromRGB(160, 200, 255) end
-	end
+	local LOG_LEVEL_STYLE = {
+		ERROR = { bg = Color3.fromRGB(60, 16, 16),  tag = Color3.fromRGB(248, 113, 113), text = Color3.fromRGB(255, 180, 180) },
+		WARN  = { bg = Color3.fromRGB(52, 38,  8),  tag = Color3.fromRGB(251, 191,  36), text = Color3.fromRGB(253, 224, 120) },
+		INFO  = { bg = Color3.fromRGB(13, 13,  20), tag = Color3.fromRGB( 99, 102, 241), text = Color3.fromRGB(200, 200, 230) },
+		DEBUG = { bg = Color3.fromRGB(13, 13,  20), tag = Color3.fromRGB( 75,  75, 100), text = Color3.fromRGB(100, 100, 140) },
+	}
 
 	local function addLogRow(entry)
-		local rowText = string.format("[%s] %s: %s", entry.level, entry.category, entry.message)
-		local row = Instance.new("TextLabel")
-		row.Size             = UDim2.new(1, 0, 0, 14)
-		row.BackgroundTransparency = 1
-		row.TextColor3       = getLogColor(entry.level)
-		row.TextSize         = 10
-		row.Font             = Enum.Font.Code
-		row.Text             = rowText
-		row.TextXAlignment   = Enum.TextXAlignment.Left
-		row.TextTruncate     = Enum.TextTruncate.AtEnd
+		totalEntries = totalEntries + 1
+		logCountLabel.Text = totalEntries .. " entries"
+
+		local style = LOG_LEVEL_STYLE[entry.level] or LOG_LEVEL_STYLE.INFO
+
+		-- timestamp string
+		local ts = os.date("%H:%M:%S", entry.timestamp)
+
+		-- outer row frame
+		local row = Instance.new("Frame")
+		row.Name             = "LogRow_" .. totalEntries
+		row.Size             = UDim2.new(1, 0, 0, 36)
+		row.BackgroundColor3 = style.bg
+		row.BorderSizePixel  = 0
+		row.LayoutOrder      = totalEntries
 		row.Parent           = logScroll
 
-		table.insert(logRows, 1, row)
+		-- left coloured level bar
+		local bar = Instance.new("Frame")
+		bar.Size             = UDim2.new(0, 3, 1, 0)
+		bar.BackgroundColor3 = style.tag
+		bar.BorderSizePixel  = 0
+		bar.Parent           = row
 
+		-- level badge
+		local badge = Instance.new("Frame")
+		badge.Size             = UDim2.new(0, 40, 0, 16)
+		badge.Position         = UDim2.new(0, 10, 0, 6)
+		badge.BackgroundColor3 = style.tag
+		badge.BackgroundTransparency = 0.75
+		badge.BorderSizePixel  = 0
+		badge.Parent           = row
+		Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 3)
+
+		local badgeText = Instance.new("TextLabel")
+		badgeText.Size             = UDim2.new(1, 0, 1, 0)
+		badgeText.BackgroundTransparency = 1
+		badgeText.TextColor3       = style.tag
+		badgeText.TextSize         = 9
+		badgeText.Font             = Enum.Font.GothamBold
+		badgeText.Text             = entry.level
+		badgeText.Parent           = badge
+
+		-- category
+		local cat = Instance.new("TextLabel")
+		cat.Size             = UDim2.new(0, 80, 0, 14)
+		cat.Position         = UDim2.new(0, 56, 0, 5)
+		cat.BackgroundTransparency = 1
+		cat.TextColor3       = GUI_COLORS.textMuted
+		cat.TextSize         = 10
+		cat.Font             = Enum.Font.GothamBold
+		cat.Text             = entry.category
+		cat.TextXAlignment   = Enum.TextXAlignment.Left
+		cat.TextTruncate     = Enum.TextTruncate.AtEnd
+		cat.Parent           = row
+
+		-- timestamp (right aligned)
+		local timeLabel = Instance.new("TextLabel")
+		timeLabel.Size             = UDim2.new(0, 52, 0, 14)
+		timeLabel.Position         = UDim2.new(1, -56, 0, 5)
+		timeLabel.BackgroundTransparency = 1
+		timeLabel.TextColor3       = GUI_COLORS.textMuted
+		timeLabel.TextSize         = 9
+		timeLabel.Font             = Enum.Font.Code
+		timeLabel.Text             = ts
+		timeLabel.TextXAlignment   = Enum.TextXAlignment.Right
+		timeLabel.Parent           = row
+
+		-- message text (second line, full width)
+		local msg = Instance.new("TextLabel")
+		msg.Size             = UDim2.new(1, -14, 0, 14)
+		msg.Position         = UDim2.new(0, 10, 0, 19)
+		msg.BackgroundTransparency = 1
+		msg.TextColor3       = style.text
+		msg.TextSize         = 10
+		msg.Font             = Enum.Font.Code
+		msg.Text             = entry.message
+		msg.TextXAlignment   = Enum.TextXAlignment.Left
+		msg.TextTruncate     = Enum.TextTruncate.AtEnd
+		msg.Parent           = row
+
+		-- subtle separator line at bottom
+		local sep = Instance.new("Frame")
+		sep.Size             = UDim2.new(1, 0, 0, 1)
+		sep.Position         = UDim2.new(0, 0, 1, -1)
+		sep.BackgroundColor3 = GUI_COLORS.border
+		sep.BackgroundTransparency = 0.5
+		sep.BorderSizePixel  = 0
+		sep.Parent           = row
+
+		table.insert(logRows, row)
+
+		-- trim oldest rows when over cap
 		if #logRows > MAX_LOG_ROWS then
-			local old = table.remove(logRows)
+			local old = table.remove(logRows, 1)
 			old:Destroy()
+		end
+
+		-- auto-scroll to bottom
+		local canvas = logScroll.AbsoluteCanvasSize
+		local frame  = logScroll.AbsoluteSize
+		if canvas.Y > frame.Y then
+			logScroll.CanvasPosition = Vector2.new(0, canvas.Y - frame.Y)
 		end
 	end
 
 	return {
-		dockGui       = dockGui,
-		statusDot     = statusDot,
-		statusWord    = statusWord,
-		sentVal       = sentVal,
-		receivedVal   = receivedVal,
-		queueVal      = queueVal,
-		droppedVal    = droppedVal,
-		succeededVal  = succeededVal,
-		failedVal     = failedVal,
-		addLogRow     = addLogRow,
+		dockGui        = dockGui,
+		statusPill     = statusPill,
+		statusDot      = statusDot,
+		statusWord     = statusWord,
+		statRefs       = statRefs,
+		logCountLabel  = logCountLabel,
+		addLogRow      = addLogRow,
 	}
 end
 
@@ -1746,39 +1927,54 @@ end
 -- ============================================================
 
 local function startGuiRefresh(gui, wsClient, controller, auditLog)
-	local lastSeq   = 0
+	local lastSeq     = 0
 	local lastRefresh = tick()
+
+	-- colour helpers
+	local function setConnected(on)
+		if on then
+			gui.statusPill.BackgroundColor3 = GUI_COLORS.greenDim
+			gui.statusDot.BackgroundColor3  = GUI_COLORS.green
+			gui.statusWord.TextColor3       = GUI_COLORS.green
+			gui.statusWord.Text             = "ONLINE"
+		else
+			gui.statusPill.BackgroundColor3 = GUI_COLORS.redDim
+			gui.statusDot.BackgroundColor3  = GUI_COLORS.red
+			gui.statusWord.TextColor3       = GUI_COLORS.red
+			gui.statusWord.Text             = "OFFLINE"
+		end
+	end
+
+	local function setCard(key, value, highlight)
+		local ref = gui.statRefs[key]
+		if not ref then return end
+		ref.val.Text = tostring(value)
+		if highlight then
+			ref.strip.BackgroundColor3 = highlight
+		end
+	end
 
 	RunService.Heartbeat:Connect(function()
 		local now = tick()
 		if now - lastRefresh < CONFIG.GUI_REFRESH_INTERVAL then return end
 		lastRefresh = now
 
-		-- Connection status
-		local connected = wsClient:isConnected()
-		if connected then
-			gui.statusDot.BackgroundColor3  = Color3.fromRGB(60, 200, 80)
-			gui.statusWord.TextColor3        = Color3.fromRGB(60, 200, 80)
-			gui.statusWord.Text              = "ONLINE"
-		else
-			gui.statusDot.BackgroundColor3  = Color3.fromRGB(200, 60, 60)
-			gui.statusWord.TextColor3        = Color3.fromRGB(200, 60, 60)
-			gui.statusWord.Text              = "OFFLINE"
-		end
+		-- status pill
+		setConnected(wsClient:isConnected())
 
-		-- Stats
+		-- stats cards
 		local ws  = wsClient:getStats()
 		local ctl = controller._stats
 
-		gui.sentVal.Text      = tostring(ws.sent)
-		gui.receivedVal.Text  = tostring(ws.received)
-		gui.queueVal.Text     = tostring(wsClient:getQueueSize())
-		gui.droppedVal.Text   = tostring(ws.dropped)
-		gui.succeededVal.Text = tostring(ctl.succeeded)
-		gui.failedVal.Text    = tostring(ctl.failed)
+		setCard("sent",    ws.sent,                  GUI_COLORS.accentDim)
+		setCard("recv",    ws.received,               GUI_COLORS.accentDim)
+		setCard("queue",   wsClient:getQueueSize(),   ws.sent > 0 and GUI_COLORS.accentDim or GUI_COLORS.textMuted)
+		setCard("ok",      ctl.succeeded,             GUI_COLORS.greenDim)
+		setCard("failed",  ctl.failed,                ctl.failed > 0 and GUI_COLORS.redDim or GUI_COLORS.textMuted)
+		setCard("dropped", ws.dropped,                ws.dropped > 0 and GUI_COLORS.yellowDim or GUI_COLORS.textMuted)
 
-		-- New log entries
-		local recent = auditLog:getRecent(MAX_LOG_ROWS or 30)
+		-- push new audit log entries to the live log panel
+		local recent = auditLog:getRecent(MAX_LOG_ROWS)
 		for i = #recent, 1, -1 do
 			local entry = recent[i]
 			if entry.seq > lastSeq then
