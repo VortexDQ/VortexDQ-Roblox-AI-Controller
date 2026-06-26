@@ -29,8 +29,8 @@ local CONFIG = {
 	HEARTBEAT_TIMEOUT     = 70,           -- seconds before declaring dead
 	MAX_QUEUE_SIZE        = 64,           -- max queued outbound messages
 	MAX_MESSAGE_BYTES     = 512 * 1024,   -- 512 KB inbound cap
-	RATE_LIMIT_PER_SEC    = 10,           -- commands per rolling second
-	RATE_BURST_CAP        = 20,           -- absolute burst before hard-drop
+	RATE_LIMIT_PER_SEC    = 30,           -- commands per rolling second
+	RATE_BURST_CAP        = 60,           -- absolute burst before hard-drop
 	EXPLORER_MAX_DEPTH    = 12,           -- depth cap for tree serialiser
 	HISTORY_MAX_SIZE      = 200,          -- audit log entries kept in memory
 	POLL_INTERVAL         = 0.25,         -- seconds between server polls
@@ -134,14 +134,12 @@ local ALLOWED_CREATE_CLASSES = {
 }
 
 -- Root paths that commands are NEVER allowed to touch
+-- Kept minimal — only truly untouchable engine internals
 local BLOCKED_PATHS = {
-	["CoreGui"]           = true,
-	["CorePackages"]      = true,
+	["CoreGui"]                = true,
+	["CorePackages"]           = true,
 	["RobloxPluginGuiService"] = true,
-	["PluginGuiService"]  = true,
-	["AnalyticsService"]  = true,
-	["NetworkClient"]     = true,
-	["NetworkServer"]     = true,
+	["PluginGuiService"]       = true,
 }
 
 -- Properties that can never be written via SetProperty
@@ -155,17 +153,44 @@ local BLOCKED_PROPERTIES = {
 
 -- Valid root service names for path resolution
 local SERVICE_MAP = {
-	Workspace            = function() return workspace end,
-	StarterPlayer        = function() return game:GetService("StarterPlayer") end,
-	ReplicatedStorage    = function() return game:GetService("ReplicatedStorage") end,
-	ServerScriptService  = function() return game:GetService("ServerScriptService") end,
-	StarterGui           = function() return game:GetService("StarterGui") end,
-	Lighting             = function() return game:GetService("Lighting") end,
-	SoundService         = function() return game:GetService("SoundService") end,
-	Teams                = function() return game:GetService("Teams") end,
-	StarterPack          = function() return game:GetService("StarterPack") end,
-	StarterCharacterScripts = function() return game:GetService("StarterPlayer"):FindFirstChild("StarterCharacterScripts") end,
-	StarterPlayerScripts    = function() return game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts") end,
+	Workspace                  = function() return workspace end,
+	StarterPlayer              = function() return game:GetService("StarterPlayer") end,
+	StarterCharacterScripts    = function() return game:GetService("StarterPlayer"):FindFirstChild("StarterCharacterScripts") end,
+	StarterPlayerScripts       = function() return game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts") end,
+	ReplicatedStorage          = function() return game:GetService("ReplicatedStorage") end,
+	ReplicatedFirst            = function() return game:GetService("ReplicatedFirst") end,
+	ServerScriptService        = function() return game:GetService("ServerScriptService") end,
+	ServerStorage              = function() return game:GetService("ServerStorage") end,
+	StarterGui                 = function() return game:GetService("StarterGui") end,
+	StarterPack                = function() return game:GetService("StarterPack") end,
+	Lighting                   = function() return game:GetService("Lighting") end,
+	SoundService               = function() return game:GetService("SoundService") end,
+	Teams                      = function() return game:GetService("Teams") end,
+	Players                    = function() return game:GetService("Players") end,
+	Chat                       = function() return game:GetService("Chat") end,
+	LocalizationService        = function() return game:GetService("LocalizationService") end,
+	TextChatService            = function() return game:GetService("TextChatService") end,
+	CollectionService          = function() return game:GetService("CollectionService") end,
+	PhysicsService             = function() return game:GetService("PhysicsService") end,
+	MaterialService            = function() return game:GetService("MaterialService") end,
+	TweenService               = function() return game:GetService("TweenService") end,
+	UserInputService           = function() return game:GetService("UserInputService") end,
+	ProximityPromptService     = function() return game:GetService("ProximityPromptService") end,
+	BadgeService               = function() return game:GetService("BadgeService") end,
+	GroupService               = function() return game:GetService("GroupService") end,
+	InsertService              = function() return game:GetService("InsertService") end,
+	MarketplaceService         = function() return game:GetService("MarketplaceService") end,
+	DataStoreService           = function() return game:GetService("DataStoreService") end,
+	HttpService                = function() return game:GetService("HttpService") end,
+	RunService                 = function() return game:GetService("RunService") end,
+	Debris                     = function() return game:GetService("Debris") end,
+	PathfindingService         = function() return game:GetService("PathfindingService") end,
+	TestService                = function() return game:GetService("TestService") end,
+	SocialService              = function() return game:GetService("SocialService") end,
+	GuiService                 = function() return game:GetService("GuiService") end,
+	ContextActionService       = function() return game:GetService("ContextActionService") end,
+	VoiceChatService           = function() return game:GetService("VoiceChatService") end,
+	MemStorageService          = function() return game:GetService("MemStorageService") end,
 }
 
 -- ============================================================
@@ -1246,23 +1271,61 @@ end
 function Controller:_execute(action, data)
 	-- Dispatch table — only named actions are reachable
 	local dispatch = {
-		CreateInstance   = function() return self:_doCreateInstance(data) end,
-		CreatePart       = function() return self:_doCreatePart(data) end,
-		CreateFolder     = function() return self:_doCreateFolder(data) end,
-		CreateScript     = function() return self:_doCreateScript(data) end,
-		CreateUI         = function() return self:_doCreateUI(data) end,
-		SetProperty      = function() return self:_doSetProperty(data) end,
-		GetProperty      = function() return self:_doGetProperty(data) end,
-		DeleteInstance   = function() return self:_doDeleteInstance(data) end,
-		RenameInstance   = function() return self:_doRenameInstance(data) end,
-		MoveInstance     = function() return self:_doMoveInstance(data) end,
-		CloneInstance    = function() return self:_doCloneInstance(data) end,
-		GetExplorerTree  = function() return self:_doGetExplorerTree(data) end,
-		EditScript       = function() return self:_doEditScript(data) end,
-		GetSelection     = function() return self:_doGetSelection(data) end,
-		GetHistory       = function() return self:_doGetHistory(data) end,
-		GetStats         = function() return self:_doGetStats(data) end,
-		Ping             = function() return true, { pong = true, ts = os.time() }, nil end,
+		-- Instance operations
+		CreateInstance      = function() return self:_doCreateInstance(data) end,
+		CreatePart          = function() return self:_doCreatePart(data) end,
+		CreateFolder        = function() return self:_doCreateFolder(data) end,
+		CreateScript        = function() return self:_doCreateScript(data) end,
+		CreateUI            = function() return self:_doCreateUI(data) end,
+		SetProperty         = function() return self:_doSetProperty(data) end,
+		GetProperty         = function() return self:_doGetProperty(data) end,
+		DeleteInstance      = function() return self:_doDeleteInstance(data) end,
+		RenameInstance      = function() return self:_doRenameInstance(data) end,
+		MoveInstance        = function() return self:_doMoveInstance(data) end,
+		CloneInstance       = function() return self:_doCloneInstance(data) end,
+		EditScript          = function() return self:_doEditScript(data) end,
+		BulkSetProperty     = function() return self:_doBulkSetProperty(data) end,
+		BulkDelete          = function() return self:_doBulkDelete(data) end,
+		-- Reading / discovery
+		GetExplorerTree     = function() return self:_doGetExplorerTree(data) end,
+		GetScriptSource     = function() return self:_doGetScriptSource(data) end,
+		GetAllScripts       = function() return self:_doGetAllScripts(data) end,
+		GetAllProperties    = function() return self:_doGetAllProperties(data) end,
+		SearchInstances     = function() return self:_doSearchInstances(data) end,
+		GetDescendants      = function() return self:_doGetDescendants(data) end,
+		GetChildren         = function() return self:_doGetChildren(data) end,
+		GetSelection        = function() return self:_doGetSelection(data) end,
+		SetSelection        = function() return self:_doSetSelection(data) end,
+		-- Game-level info
+		GetGameInfo         = function() return self:_doGetGameInfo(data) end,
+		GetPlaceInfo        = function() return self:_doGetPlaceInfo(data) end,
+		GetServiceProperties = function() return self:_doGetServiceProperties(data) end,
+		SetServiceProperty  = function() return self:_doSetServiceProperty(data) end,
+		-- Lighting
+		GetLighting         = function() return self:_doGetLighting(data) end,
+		SetLighting         = function() return self:_doSetLighting(data) end,
+		-- Workspace / physics
+		GetWorkspaceSettings = function() return self:_doGetWorkspaceSettings(data) end,
+		SetWorkspaceSettings = function() return self:_doSetWorkspaceSettings(data) end,
+		-- Players (read-only in Studio)
+		GetPlayers          = function() return self:_doGetPlayers(data) end,
+		-- Tags (CollectionService)
+		GetTags             = function() return self:_doGetTags(data) end,
+		AddTag              = function() return self:_doAddTag(data) end,
+		RemoveTag           = function() return self:_doRemoveTag(data) end,
+		GetTagged           = function() return self:_doGetTagged(data) end,
+		-- Teams
+		GetTeams            = function() return self:_doGetTeams(data) end,
+		-- Attributes
+		GetAttribute        = function() return self:_doGetAttribute(data) end,
+		SetAttribute        = function() return self:_doSetAttribute(data) end,
+		GetAttributes       = function() return self:_doGetAttributes(data) end,
+		-- Studio
+		GetStudioTheme      = function() return self:_doGetStudioTheme(data) end,
+		-- Meta
+		GetHistory          = function() return self:_doGetHistory(data) end,
+		GetStats            = function() return self:_doGetStats(data) end,
+		Ping                = function() return true, { pong = true, ts = os.time() }, nil end,
 	}
 
 	local handler = dispatch[action]
@@ -1480,6 +1543,657 @@ function Controller:_addHistory(entry)
 end
 
 -- ============================================================
+--  EXTENDED ACTION HANDLERS
+-- ============================================================
+
+-- helper: safely read a list of named properties from an instance
+local function readProps(inst, propNames)
+	local out = {}
+	for _, name in ipairs(propNames) do
+		local ok, val = pcall(function() return inst[name] end)
+		if ok then
+			local t = typeof(val)
+			if t == "Vector3" then
+				out[name] = { x = val.X, y = val.Y, z = val.Z }
+			elseif t == "Color3" then
+				out[name] = { r = math.floor(val.R*255), g = math.floor(val.G*255), b = math.floor(val.B*255) }
+			elseif t == "CFrame" then
+				out[name] = { x = val.X, y = val.Y, z = val.Z, rx = val.LookVector.X, ry = val.LookVector.Y, rz = val.LookVector.Z }
+			elseif t == "UDim2" then
+				out[name] = { xs = val.X.Scale, xo = val.X.Offset, ys = val.Y.Scale, yo = val.Y.Offset }
+			elseif t == "EnumItem" then
+				out[name] = tostring(val)
+			elseif t == "Instance" then
+				out[name] = val:GetFullName()
+			elseif t == "boolean" or t == "number" or t == "string" then
+				out[name] = val
+			else
+				local ok2, s = pcall(tostring, val)
+				out[name] = ok2 and s or "?"
+			end
+		end
+	end
+	return out
+end
+
+-- BulkSetProperty: set same property on multiple paths
+function Controller:_doBulkSetProperty(data)
+	local paths    = data.paths
+	local propName = data.property
+	local value    = data.value
+	if type(paths) ~= "table" then return false, nil, "paths must be array" end
+	if type(propName) ~= "string" then return false, nil, "property must be string" end
+	local okProp, errProp = Validator.isPropertyWritable(propName)
+	if not okProp then return false, nil, errProp end
+	local results = {}
+	for _, path in ipairs(paths) do
+		local s, e = self._im:setProperty(path, propName, value)
+		table.insert(results, { path = path, success = s, error = e })
+	end
+	return true, { results = results, count = #results }, nil
+end
+
+-- BulkDelete: delete multiple paths at once
+function Controller:_doBulkDelete(data)
+	local paths = data.paths
+	if type(paths) ~= "table" then return false, nil, "paths must be array" end
+	local results = {}
+	for _, path in ipairs(paths) do
+		local s, e = self._im:deleteInstance(path)
+		table.insert(results, { path = path, success = s, error = e })
+	end
+	return true, { results = results, count = #results }, nil
+end
+
+-- GetScriptSource: read source of a script
+function Controller:_doGetScriptSource(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	if not (inst:IsA("Script") or inst:IsA("LocalScript") or inst:IsA("ModuleScript")) then
+		return false, nil, "not a script: " .. data.path
+	end
+	local src
+	local ok2, val = pcall(function() return inst.Source end)
+	if not ok2 then return false, nil, "cannot read Source: " .. tostring(val) end
+	src = val
+	return true, { path = data.path, source = src, className = inst.ClassName, lineCount = select(2, src:gsub("\n","")) + 1 }, nil
+end
+
+-- GetAllScripts: scan entire game tree and return all scripts with sources
+function Controller:_doGetAllScripts(data)
+	local includeSources = data.includeSources ~= false
+	local results = {}
+	local count   = 0
+	local MAX_SCRIPTS = 500
+
+	local function scan(inst, depth)
+		if count >= MAX_SCRIPTS then return end
+		if depth > 20 then return end
+		if inst:IsA("Script") or inst:IsA("LocalScript") or inst:IsA("ModuleScript") then
+			count = count + 1
+			local entry = {
+				path      = self._im:getPath(inst),
+				name      = inst.Name,
+				className = inst.ClassName,
+				disabled  = inst:IsA("BaseScript") and inst.Disabled or false,
+			}
+			if includeSources then
+				local ok2, src = pcall(function() return inst.Source end)
+				entry.source    = ok2 and src or nil
+				entry.lineCount = ok2 and (select(2, src:gsub("\n","")) + 1) or 0
+			end
+			table.insert(results, entry)
+		end
+		for _, child in ipairs(inst:GetChildren()) do
+			scan(child, depth + 1)
+		end
+	end
+
+	for _, getter in pairs(SERVICE_MAP) do
+		local ok2, svc = pcall(getter)
+		if ok2 and svc then pcall(scan, svc, 1) end
+	end
+
+	self._log:info("Controller", string.format("GetAllScripts: found %d scripts", count))
+	return true, { scripts = results, total = count }, nil
+end
+
+-- GetAllProperties: dump every readable property on an instance
+function Controller:_doGetAllProperties(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+
+	-- Get properties via API dump approach — read known common ones plus any on the class
+	local props = {}
+	local commonProps = {
+		"Name","ClassName","Parent","Archivable",
+		-- Part
+		"Size","Position","Orientation","CFrame","Color","BrickColor","Material","Transparency",
+		"Reflectance","Anchored","CanCollide","CanQuery","CanTouch","CastShadow","Locked",
+		"Shape","TopSurface","BottomSurface","FrontSurface","BackSurface","LeftSurface","RightSurface",
+		"MassType","Density","Friction","Elasticity","FrictionWeight","ElasticityWeight",
+		-- BasePart common
+		"AssemblyLinearVelocity","AssemblyAngularVelocity","AssemblyMass","AssemblyCenterOfMass",
+		-- Script
+		"Source","Disabled","RunContext",
+		-- UI
+		"BackgroundColor3","BackgroundTransparency","BorderColor3","BorderSizePixel",
+		"Size","Position","Visible","ZIndex","Active","ClipsDescendants","AutomaticSize",
+		"Text","TextColor3","TextSize","TextTransparency","Font","TextWrapped","TextXAlignment","TextYAlignment",
+		"Image","ImageColor3","ImageTransparency","ScaleType","TileSize","SliceCenter",
+		-- Humanoid
+		"Health","MaxHealth","WalkSpeed","JumpPower","JumpHeight","AutoRotate","AutoJumpEnabled",
+		-- Light
+		"Brightness","Range","Color","Enabled","Shadows","Angle","Face",
+		-- Sound
+		"SoundId","Volume","Pitch","Playing","Looped","RollOffMaxDistance","RollOffMinDistance",
+		-- Model
+		"PrimaryPart","LevelOfDetail","ModelLod",
+		-- Lighting service
+		"Ambient","OutdoorAmbient","Brightness","ClockTime","GeographicLatitude","ExposureCompensation",
+		"FogColor","FogEnd","FogStart","GlobalShadows","ShadowSoftness","Technology",
+	}
+
+	for _, pname in ipairs(commonProps) do
+		local ok2, val = pcall(function() return inst[pname] end)
+		if ok2 and val ~= nil then
+			local t = typeof(val)
+			if t == "Vector3" then
+				props[pname] = { _type="Vector3", x=val.X, y=val.Y, z=val.Z }
+			elseif t == "Color3" then
+				props[pname] = { _type="Color3", r=math.floor(val.R*255), g=math.floor(val.G*255), b=math.floor(val.B*255) }
+			elseif t == "CFrame" then
+				props[pname] = { _type="CFrame", x=val.X, y=val.Y, z=val.Z }
+			elseif t == "EnumItem" then
+				props[pname] = { _type="Enum", value=tostring(val) }
+			elseif t == "Instance" then
+				props[pname] = { _type="Instance", path=val:GetFullName() }
+			elseif t == "boolean" or t == "number" or t == "string" then
+				props[pname] = val
+			elseif t == "BrickColor" then
+				props[pname] = { _type="BrickColor", name=tostring(val) }
+			end
+		end
+	end
+
+	return true, { path = data.path, className = inst.ClassName, properties = props }, nil
+end
+
+-- SearchInstances: find all instances matching name/class/tag in scope
+function Controller:_doSearchInstances(data)
+	local searchName  = data.name
+	local searchClass = data.className
+	local searchTag   = data.tag
+	local rootPath    = data.root  -- optional, defaults to entire game
+	local maxResults  = math.min(tonumber(data.limit) or 200, 500)
+
+	if not searchName and not searchClass and not searchTag then
+		return false, nil, "provide at least one of: name, className, tag"
+	end
+
+	local results = {}
+	local count   = 0
+
+	local function matches(inst)
+		if searchName  and not inst.Name:lower():find(searchName:lower(), 1, true) then return false end
+		if searchClass and inst.ClassName ~= searchClass then return false end
+		if searchTag then
+			local cs = game:GetService("CollectionService")
+			if not cs:HasTag(inst, searchTag) then return false end
+		end
+		return true
+	end
+
+	local function scan(inst, depth)
+		if count >= maxResults or depth > 30 then return end
+		if matches(inst) then
+			count = count + 1
+			table.insert(results, {
+				name      = inst.Name,
+				className = inst.ClassName,
+				path      = self._im:getPath(inst),
+			})
+		end
+		for _, child in ipairs(inst:GetChildren()) do
+			scan(child, depth + 1)
+		end
+	end
+
+	if rootPath then
+		local root, e = self._im:_resolve(rootPath)
+		if not root then return false, nil, "root resolve failed: " .. (e or "?") end
+		pcall(scan, root, 1)
+	else
+		for _, getter in pairs(SERVICE_MAP) do
+			local ok2, svc = pcall(getter)
+			if ok2 and svc then pcall(scan, svc, 1) end
+			if count >= maxResults then break end
+		end
+	end
+
+	self._log:info("Controller", string.format("SearchInstances: found %d results", count))
+	return true, { results = results, total = count, capped = count >= maxResults }, nil
+end
+
+-- GetDescendants: return flat list of all descendants of a path
+function Controller:_doGetDescendants(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+
+	local classFilter = data.className
+	local maxResults  = math.min(tonumber(data.limit) or 500, 2000)
+	local results     = {}
+
+	local ok2, descs = pcall(function() return inst:GetDescendants() end)
+	if not ok2 then return false, nil, "GetDescendants failed" end
+
+	for _, d in ipairs(descs) do
+		if #results >= maxResults then break end
+		if not classFilter or d.ClassName == classFilter then
+			table.insert(results, {
+				name      = d.Name,
+				className = d.ClassName,
+				path      = self._im:getPath(d),
+			})
+		end
+	end
+
+	return true, { descendants = results, total = #results, capped = #results >= maxResults }, nil
+end
+
+-- GetChildren: return direct children of a path with basic properties
+function Controller:_doGetChildren(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+
+	local children = {}
+	local ok2, kids = pcall(function() return inst:GetChildren() end)
+	if not ok2 then return false, nil, "GetChildren failed" end
+
+	for _, child in ipairs(kids) do
+		table.insert(children, {
+			name      = child.Name,
+			className = child.ClassName,
+			path      = self._im:getPath(child),
+			childCount = #child:GetChildren(),
+		})
+	end
+
+	return true, { children = children, count = #children, parentPath = data.path }, nil
+end
+
+-- SetSelection: select instances in Studio by path
+function Controller:_doSetSelection(data)
+	local paths = data.paths
+	if type(paths) ~= "table" then return false, nil, "paths must be array" end
+	local instances = {}
+	for _, path in ipairs(paths) do
+		local inst, _ = self._im:_resolve(path)
+		if inst then table.insert(instances, inst) end
+	end
+	local ok2, err2 = pcall(function() Selection:Set(instances) end)
+	if not ok2 then return false, nil, tostring(err2) end
+	return true, { selected = #instances }, nil
+end
+
+-- GetGameInfo: place id, game id, creator, name
+function Controller:_doGetGameInfo(_data)
+	local info = {}
+	local props = { "GameId","PlaceId","PlaceVersion","PlacePublishService","Name","JobId","CreatorId","CreatorType","PrivateServerId","PrivateServerOwnerId","Workspace" }
+	for _, p in ipairs(props) do
+		local ok2, val = pcall(function() return game[p] end)
+		if ok2 then
+			if typeof(val) == "Instance" then
+				info[p] = val:GetFullName()
+			elseif typeof(val) == "EnumItem" then
+				info[p] = tostring(val)
+			else
+				info[p] = val
+			end
+		end
+	end
+	-- Studio-specific info
+	local ok3, theme = pcall(function() return settings().Studio.Theme.Name end)
+	info.studioTheme = ok3 and theme or "unknown"
+	info.isStudio    = RunService:IsStudio()
+	info.isEdit      = RunService:IsEdit()
+	info.isRunning   = RunService:IsRunning()
+	return true, info, nil
+end
+
+-- GetPlaceInfo: broader place metadata
+function Controller:_doGetPlaceInfo(_data)
+	local info = {
+		placeId      = game.PlaceId,
+		gameId       = game.GameId,
+		placeVersion = game.PlaceVersion,
+		isStudio     = RunService:IsStudio(),
+		isEdit       = RunService:IsEdit(),
+		isRunning    = RunService:IsRunning(),
+		isServer     = RunService:IsServer(),
+		isClient     = RunService:IsClient(),
+	}
+	-- workspace metadata
+	local ws = workspace
+	info.workspaceName         = ws.Name
+	local ok2, grav = pcall(function() return ws.Gravity end)
+	info.gravity               = ok2 and grav or nil
+	local ok3, streamingEnabled = pcall(function() return ws.StreamingEnabled end)
+	info.streamingEnabled      = ok3 and streamingEnabled or nil
+	local ok4, streamingDistance = pcall(function() return ws.StreamingMinRadius end)
+	info.streamingMinRadius    = ok4 and streamingDistance or nil
+	return true, info, nil
+end
+
+-- GetServiceProperties: read all readable properties of a named service
+function Controller:_doGetServiceProperties(data)
+	local ok, err = Validator.isString(data.service, 64)
+	if not ok then return false, nil, "service: " .. err end
+
+	local getter = SERVICE_MAP[data.service]
+	if not getter then return false, nil, "unknown service: " .. data.service end
+	local ok2, svc = pcall(getter)
+	if not ok2 or not svc then return false, nil, "service not available: " .. data.service end
+
+	-- Read a broad set of property names — errors are silently skipped
+	local props = {}
+	local ok3, allProps = pcall(function()
+		-- Use Instance:GetAttributes as a sanity probe then enumerate known names
+		return {}
+	end)
+
+	-- Read properties dynamically from a predefined broad list
+	local broadList = {
+		"Name","ClassName","Gravity","Ambient","OutdoorAmbient","Brightness","ClockTime",
+		"GeographicLatitude","ExposureCompensation","FogColor","FogEnd","FogStart",
+		"GlobalShadows","ShadowSoftness","Technology","StreamingEnabled","StreamingMinRadius",
+		"StreamingMaxRadius","StreamingIntegrityMode","FallenPartsDestroyHeight",
+		"SignalBehavior","PhysicsSteppingMethod","InterpolationThrottling",
+		"WorkspaceSignalBehavior","AllowThirdPartySales","AllowExternalLinks",
+		"ChatVersion","BubbleChatEnabled","VoiceChatEnabled",
+		"MaxPlayers","PreferredPlayers","RespawnTime",
+		"AmbientReverb","DistanceFactor","DopplerScale","RolloffScale",
+		"AnimatorThrottlingMode","HumanoidStateMachineMode",
+		"MeshPartHeadsAndAccessories","AvatarUnificationMode",
+		"IKControlConstraintSupport","LoadStringEnabled",
+		"HttpEnabled","AllowedExternalLinkReferences",
+	}
+
+	for _, pname in ipairs(broadList) do
+		local ok4, val = pcall(function() return svc[pname] end)
+		if ok4 and val ~= nil then
+			local t = typeof(val)
+			if t == "Color3" then
+				props[pname] = { _type="Color3", r=math.floor(val.R*255), g=math.floor(val.G*255), b=math.floor(val.B*255) }
+			elseif t == "EnumItem" then
+				props[pname] = { _type="Enum", value=tostring(val) }
+			elseif t == "boolean" or t == "number" or t == "string" then
+				props[pname] = val
+			end
+		end
+	end
+
+	return true, { service = data.service, properties = props }, nil
+end
+
+-- SetServiceProperty: write a property on a named service
+function Controller:_doSetServiceProperty(data)
+	local ok, err = Validator.isString(data.service, 64)
+	if not ok then return false, nil, "service: " .. err end
+	ok, err = Validator.isString(data.property, 128)
+	if not ok then return false, nil, "property: " .. err end
+
+	local okProp, errProp = Validator.isPropertyWritable(data.property)
+	if not okProp then return false, nil, errProp end
+
+	local getter = SERVICE_MAP[data.service]
+	if not getter then return false, nil, "unknown service: " .. data.service end
+	local ok2, svc = pcall(getter)
+	if not ok2 or not svc then return false, nil, "service unavailable" end
+
+	local value = Validator.coerceValue(data.value)
+	local ok3, e3 = pcall(function() svc[data.property] = value end)
+	if not ok3 then return false, nil, tostring(e3) end
+
+	self._log:info("Controller", string.format("SetServiceProperty %s.%s", data.service, data.property))
+	return true, {}, nil
+end
+
+-- GetLighting: full snapshot of the Lighting service
+function Controller:_doGetLighting(_data)
+	local L = game:GetService("Lighting")
+	local lightingProps = {
+		"Ambient","OutdoorAmbient","Brightness","ClockTime","TimeOfDay",
+		"GeographicLatitude","ExposureCompensation","EnvironmentDiffuseScale",
+		"EnvironmentSpecularScale","FogColor","FogEnd","FogStart",
+		"GlobalShadows","ShadowSoftness","Technology",
+	}
+	local props = readProps(L, lightingProps)
+	-- also get children (atmospheres, effects, etc.)
+	local effects = {}
+	for _, child in ipairs(L:GetChildren()) do
+		table.insert(effects, { name = child.Name, className = child.ClassName })
+	end
+	return true, { properties = props, effects = effects }, nil
+end
+
+-- SetLighting: bulk-set lighting properties
+function Controller:_doSetLighting(data)
+	if type(data.properties) ~= "table" then return false, nil, "properties must be table" end
+	local L = game:GetService("Lighting")
+	local results = {}
+	for pname, pval in pairs(data.properties) do
+		local okProp = Validator.isPropertyWritable(pname)
+		if okProp then
+			local val = Validator.coerceValue(pval)
+			local ok2, e2 = pcall(function() L[pname] = val end)
+			table.insert(results, { property = pname, success = ok2, error = ok2 and nil or tostring(e2) })
+		else
+			table.insert(results, { property = pname, success = false, error = "blocked property" })
+		end
+	end
+	self._log:info("Controller", "SetLighting: applied " .. #results .. " properties")
+	return true, { results = results }, nil
+end
+
+-- GetWorkspaceSettings: workspace physics and rendering settings
+function Controller:_doGetWorkspaceSettings(_data)
+	local ws = workspace
+	local wsProps = {
+		"Gravity","FallenPartsDestroyHeight","StreamingEnabled","StreamingMinRadius",
+		"StreamingMaxRadius","StreamingIntegrityMode","StreamingPauseMode",
+		"SignalBehavior","PhysicsSteppingMethod","InterpolationThrottling",
+		"ReplicaFocus","DistributedGameTime","Name","AllowThirdPartySales",
+	}
+	local props = readProps(ws, wsProps)
+	return true, { properties = props, childCount = #ws:GetChildren() }, nil
+end
+
+-- SetWorkspaceSettings: write workspace properties
+function Controller:_doSetWorkspaceSettings(data)
+	if type(data.properties) ~= "table" then return false, nil, "properties must be table" end
+	local ws = workspace
+	local results = {}
+	for pname, pval in pairs(data.properties) do
+		local okProp = Validator.isPropertyWritable(pname)
+		if okProp then
+			local val = Validator.coerceValue(pval)
+			local ok2, e2 = pcall(function() ws[pname] = val end)
+			table.insert(results, { property = pname, success = ok2, error = ok2 and nil or tostring(e2) })
+		else
+			table.insert(results, { property = pname, success = false, error = "blocked" })
+		end
+	end
+	return true, { results = results }, nil
+end
+
+-- GetPlayers: list connected players (useful when testing in Play Solo)
+function Controller:_doGetPlayers(_data)
+	local Players = game:GetService("Players")
+	local list    = {}
+	local ok2, players = pcall(function() return Players:GetPlayers() end)
+	if ok2 then
+		for _, p in ipairs(players) do
+			local ok3, char = pcall(function() return p.Character end)
+			table.insert(list, {
+				name        = p.Name,
+				displayName = p.DisplayName,
+				userId      = p.UserId,
+				accountAge  = p.AccountAge,
+				teamColor   = tostring(p.TeamColor),
+				hasCharacter = ok3 and char ~= nil,
+			})
+		end
+	end
+	return true, { players = list, count = #list }, nil
+end
+
+-- GetTags: get all CollectionService tags on an instance
+function Controller:_doGetTags(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	local cs = game:GetService("CollectionService")
+	local ok2, tags = pcall(function() return cs:GetTags(inst) end)
+	if not ok2 then return false, nil, tostring(tags) end
+	return true, { path = data.path, tags = tags }, nil
+end
+
+-- AddTag / RemoveTag
+function Controller:_doAddTag(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	ok, err = Validator.isString(data.tag, 128)
+	if not ok then return false, nil, "tag: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	local cs = game:GetService("CollectionService")
+	local ok2, e2 = pcall(function() cs:AddTag(inst, data.tag) end)
+	if not ok2 then return false, nil, tostring(e2) end
+	self._log:info("Controller", "AddTag " .. data.tag .. " on " .. data.path)
+	return true, {}, nil
+end
+
+function Controller:_doRemoveTag(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	ok, err = Validator.isString(data.tag, 128)
+	if not ok then return false, nil, "tag: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	local cs = game:GetService("CollectionService")
+	local ok2, e2 = pcall(function() cs:RemoveTag(inst, data.tag) end)
+	if not ok2 then return false, nil, tostring(e2) end
+	return true, {}, nil
+end
+
+-- GetTagged: find all instances with a given CollectionService tag
+function Controller:_doGetTagged(data)
+	local ok, err = Validator.isString(data.tag, 128)
+	if not ok then return false, nil, "tag: " .. err end
+	local cs = game:GetService("CollectionService")
+	local ok2, tagged = pcall(function() return cs:GetTagged(data.tag) end)
+	if not ok2 then return false, nil, tostring(tagged) end
+	local results = {}
+	for _, inst in ipairs(tagged) do
+		table.insert(results, { name = inst.Name, className = inst.ClassName, path = self._im:getPath(inst) })
+	end
+	return true, { tag = data.tag, instances = results, count = #results }, nil
+end
+
+-- GetTeams: list all teams and their members
+function Controller:_doGetTeams(_data)
+	local Teams = game:GetService("Teams")
+	local list = {}
+	for _, team in ipairs(Teams:GetTeams()) do
+		local ok2, members = pcall(function() return team:GetPlayers() end)
+		local memberNames = {}
+		if ok2 then
+			for _, p in ipairs(members) do table.insert(memberNames, p.Name) end
+		end
+		table.insert(list, {
+			name        = team.Name,
+			teamColor   = tostring(team.TeamColor),
+			autoAssignable = team.AutoAssignable,
+			members     = memberNames,
+		})
+	end
+	return true, { teams = list, count = #list }, nil
+end
+
+-- GetAttribute / SetAttribute / GetAttributes
+function Controller:_doGetAttribute(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	ok, err = Validator.isString(data.name, 128)
+	if not ok then return false, nil, "name: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	local ok2, val = pcall(function() return inst:GetAttribute(data.name) end)
+	if not ok2 then return false, nil, tostring(val) end
+	return true, { name = data.name, value = val, type = typeof(val) }, nil
+end
+
+function Controller:_doSetAttribute(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	ok, err = Validator.isString(data.name, 128)
+	if not ok then return false, nil, "name: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	local val = Validator.coerceValue(data.value)
+	local ok2, e2 = pcall(function() inst:SetAttribute(data.name, val) end)
+	if not ok2 then return false, nil, tostring(e2) end
+	self._log:debug("Controller", "SetAttribute " .. data.name .. " on " .. data.path)
+	return true, {}, nil
+end
+
+function Controller:_doGetAttributes(data)
+	local ok, err = Validator.isString(data.path, 512)
+	if not ok then return false, nil, "path: " .. err end
+	local inst, e = self._im:_resolve(data.path)
+	if not inst then return false, nil, e end
+	local ok2, attrs = pcall(function() return inst:GetAttributes() end)
+	if not ok2 then return false, nil, tostring(attrs) end
+	local out = {}
+	for k, v in pairs(attrs) do
+		out[k] = { value = v, type = typeof(v) }
+	end
+	return true, { path = data.path, attributes = out, count = #out }, nil
+end
+
+-- GetStudioTheme: current Studio UI theme name and colours
+function Controller:_doGetStudioTheme(_data)
+	local ok2, theme = pcall(function() return settings().Studio.Theme end)
+	if not ok2 or not theme then return true, { theme = "unknown" }, nil end
+	local info = { name = theme.Name }
+	-- Sample a few key semantic colours
+	local sampleColours = {
+		"MainBackground","Titlebar","Border","InputFieldBackground","Button",
+		"ButtonText","BrightText","DimmedText","CategoryItem","TabBar",
+	}
+	info.colors = {}
+	for _, cname in ipairs(sampleColours) do
+		local ok3, col = pcall(function()
+			return theme:GetColor(Enum.StudioStyleGuideColor[cname])
+		end)
+		if ok3 and col then
+			info.colors[cname] = { r = math.floor(col.R*255), g = math.floor(col.G*255), b = math.floor(col.B*255) }
+		end
+	end
+	return true, info, nil
+end
+
+-- ============================================================
 --  GUI BUILDER  (modern redesign)
 -- ============================================================
 
@@ -1514,8 +2228,8 @@ local function buildGui(pluginRef)
 		Enum.InitialDockState.Right,
 		true,
 		false,
-		340, 600,
-		280, 400
+		280, 480,
+		240, 340
 	)
 	local dockGui = pluginRef:CreateDockWidgetPluginGui(CONFIG.PLUGIN_ID, info)
 	dockGui.Title = "VortexDQ AI Controller"
