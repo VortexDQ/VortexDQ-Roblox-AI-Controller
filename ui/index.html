@@ -1,262 +1,298 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VortexDQ AI</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VortexDQ AI Controller</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="root">
-
-  <!-- ═══ SIDEBAR ═══ -->
-  <aside id="sidebar">
-    <div id="sidebar-top">
-      <!-- Brand -->
-      <div id="brand">
-        <div id="brand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L22 7V17L12 22L2 17V7L12 2Z" fill="currentColor" opacity=".15" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M12 6L18 9.5V16.5L12 20L6 16.5V9.5L12 6Z" fill="currentColor" opacity=".4"/>
-            <circle cx="12" cy="13" r="2.5" fill="currentColor"/>
-          </svg>
-        </div>
-        <div>
-          <div id="brand-name">VortexDQ</div>
-          <div id="brand-tag">AI Controller</div>
-        </div>
-      </div>
-
-      <!-- Plugin status -->
-      <div id="status-chip">
-        <span id="status-dot"></span>
-        <span id="status-text">Connecting</span>
-        <span id="status-ping"></span>
-      </div>
-
-      <!-- Nav -->
-      <nav id="nav">
-        <button class="nav-item active" data-tab="chat">
-          <svg class="ni" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd"/></svg>
-          Chat
-          <span id="msg-badge" class="badge hidden"></span>
-        </button>
-        <button class="nav-item" data-tab="history">
-          <svg class="ni" viewBox="0 0 20 20" fill="currentColor"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"/></svg>
-          History
-        </button>
-        <button class="nav-item" data-tab="models">
-          <svg class="ni" viewBox="0 0 20 20" fill="currentColor"><path d="M13 7H7v6h6V7z"/><path fill-rule="evenodd" d="M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z" clip-rule="evenodd"/></svg>
-          Models
-        </button>
-        <button class="nav-item" data-tab="stats">
-          <svg class="ni" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
-          Stats
-        </button>
-        <button class="nav-item" data-tab="errors">
-          <svg class="ni" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-          Errors
-          <span id="err-badge" class="badge err-badge hidden"></span>
-        </button>
-        <button class="nav-item" data-tab="settings">
-          <svg class="ni" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
-          Settings
-          <span id="key-badge" class="badge err-badge hidden">!</span>
-        </button>
-      </nav>
-    </div>
-
-    <!-- New chat + model badge -->
-    <div id="sidebar-bottom">
-      <div id="active-model-row">
-        <span id="active-model-label">Model</span>
-        <span id="active-model-name">—</span>
-      </div>
-      <button id="new-chat-btn">
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
-        New chat
-      </button>
-    </div>
-  </aside>
-
-  <!-- ═══ MAIN ═══ -->
-  <main id="main">
-
-    <!-- ── CHAT ── -->
-    <div class="pane active" id="pane-chat">
-      <!-- Header -->
-      <div class="pane-header">
-        <div>
-          <div class="pane-title">Chat</div>
-          <div class="pane-sub" id="session-label">New session</div>
-        </div>
-        <div class="header-actions">
-          <label class="toggle-wrap" title="Enhance output quality">
-            <input type="checkbox" id="enhanceToggle" checked>
-            <span class="tog-track"><span class="tog-thumb"></span></span>
-            <span class="tog-label">Enhance</span>
-          </label>
-          <button class="hdr-btn" id="clear-btn" title="Clear chat">
-            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <!-- Messages -->
-      <div id="messages"></div>
-
-      <!-- Input -->
-      <div id="input-area">
-        <div id="chips" class="chips-row">
-          <button class="chip" data-p="Make my cuffs system fully work — cuff players, restrict movement, visual cuffs on wrists, uncuff command">⛓ Cuffs system</button>
-          <button class="chip" data-p="Create a fully working gun tool — raycast shooting, damage, ammo, reload, muzzle flash, sound effects">🔫 Working gun</button>
-          <button class="chip" data-p="Build a detailed futuristic map with neon lighting, platforms, and atmosphere">🏙 Futuristic map</button>
-          <button class="chip" data-p="Create a complete round-based game with lobby, timer, scoring, and win screen">🎮 Full game</button>
-          <button class="chip" data-p="Add a professional leaderboard with DataStore saving and leaderstats">📊 Leaderboard</button>
-        </div>
-        <div id="input-box">
-          <textarea id="user-input" placeholder="Ask the AI to build anything… (Ctrl+Enter to send)" rows="1"></textarea>
-          <button id="send-btn" type="button">
-            <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
-          </button>
-        </div>
-        <div id="input-hint">Ctrl+Enter to send · the AI builds, scripts, and deploys directly into Studio</div>
-      </div>
-    </div>
-
-    <!-- ── HISTORY ── -->
-    <div class="pane" id="pane-history">
-      <div class="pane-header">
-        <div>
-          <div class="pane-title">History</div>
-          <div class="pane-sub">Past conversations</div>
-        </div>
-        <button class="hdr-btn" id="clear-history-btn" title="Clear all history">Clear all</button>
-      </div>
-      <div id="history-list" class="scroll-area"></div>
-    </div>
-
-    <!-- ── MODELS ── -->
-    <div class="pane" id="pane-models">
-      <div class="pane-header">
-        <div>
-          <div class="pane-title">Models</div>
-          <div class="pane-sub">Choose the AI powering your builds</div>
-        </div>
-      </div>
-      <div id="models-grid" class="scroll-area p7"></div>
-    </div>
-
-    <!-- ── STATS ── -->
-    <div class="pane" id="pane-stats">
-      <div class="pane-header">
-        <div>
-          <div class="pane-title">Stats</div>
-          <div class="pane-sub">Execution metrics</div>
-        </div>
-        <button class="hdr-btn" id="refresh-stats-btn">Refresh</button>
-      </div>
-      <div class="scroll-area p7">
-        <div id="stat-grid">
-          <div class="stat-card"><div class="sc-label">Executions</div><div class="sc-val" id="s-exec">0</div></div>
-          <div class="stat-card"><div class="sc-label">Success Rate</div><div class="sc-val" id="s-rate">—</div></div>
-          <div class="stat-card"><div class="sc-label">Avg Time</div><div class="sc-val" id="s-time">—</div></div>
-          <div class="stat-card"><div class="sc-label">Plugin</div><div class="sc-val" id="s-plug">—</div></div>
-        </div>
-        <div class="section-label">Recent Executions</div>
-        <div id="exec-list"></div>
-      </div>
-    </div>
-
-    <!-- ── ERRORS ── -->
-    <div class="pane" id="pane-errors">
-      <div class="pane-header">
-        <div>
-          <div class="pane-title">Errors</div>
-          <div class="pane-sub">Tracked issues</div>
-        </div>
-        <button class="hdr-btn" id="export-btn">Export CSV</button>
-      </div>
-      <div class="scroll-area p7">
-        <div id="err-summary">
-          <div class="err-stat"><span class="es-num" id="e-total">0</span><span class="es-lab">Total</span></div>
-          <div class="err-stat ok"><span class="es-num" id="e-fixed">0</span><span class="es-lab">Fixed</span></div>
-          <div class="err-stat bad"><span class="es-num" id="e-unfixed">0</span><span class="es-lab">Unfixed</span></div>
-          <div class="err-stat warn"><span class="es-num" id="e-crit">0</span><span class="es-lab">Critical</span></div>
-        </div>
-        <div id="err-list"></div>
-      </div>
-    </div>
-
-    <!-- ── SETTINGS ── -->
-    <div class="pane" id="pane-settings">
-      <div class="pane-header">
-        <div>
-          <div class="pane-title">Settings</div>
-          <div class="pane-sub">API keys &amp; configuration</div>
-        </div>
-      </div>
-      <div class="scroll-area p7">
-        <div class="settings-form">
-          <div id="no-key-banner" class="no-key-banner hidden">
-            No API keys configured — enter at least one key below to start using AI.
-          </div>
-
-          <div class="setting-group">
-            <div class="setting-label">Anthropic (Claude)</div>
-            <div class="setting-desc">Powers all Claude models — Sonnet, Haiku, and Opus Pro.</div>
-            <div class="setting-input-wrap">
-              <input class="setting-input" type="password" id="key-anthropic" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
-              <div class="key-status unset" id="ks-anthropic">✕</div>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">VortexDQ</h1>
+                <p class="tagline">AI Game Builder</p>
             </div>
-          </div>
 
-          <div class="setting-divider"></div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-tab="chat">
+                    <span class="icon">💬</span>
+                    <span>Chat</span>
+                </button>
+                <button class="nav-item" data-tab="models">
+                    <span class="icon">🤖</span>
+                    <span>Models</span>
+                </button>
+                <button class="nav-item" data-tab="errors">
+                    <span class="icon">⚠️</span>
+                    <span>Errors</span>
+                </button>
+                <button class="nav-item" data-tab="stats">
+                    <span class="icon">📊</span>
+                    <span>Stats</span>
+                </button>
+                <button class="nav-item" data-tab="plugins">
+                    <span class="icon">🔌</span>
+                    <span>Plugin</span>
+                </button>
+                <button class="nav-item" data-tab="settings">
+                    <span class="icon">⚙️</span>
+                    <span>Settings</span>
+                    <span id="key-badge" class="key-alert hidden">!</span>
+                </button>
+            </nav>
 
-          <div class="setting-group">
-            <div class="setting-label">Google Gemini</div>
-            <div class="setting-desc">Enables the Gemini 2.0 Flash model option.</div>
-            <div class="setting-input-wrap">
-              <input class="setting-input" type="password" id="key-gemini" placeholder="AIza…" autocomplete="off" spellcheck="false">
-              <div class="key-status unset" id="ks-gemini">✕</div>
+            <div class="sidebar-footer">
+                <button class="btn-secondary" id="clearChat">
+                    <span class="icon">🗑️</span> Clear Chat
+                </button>
             </div>
-          </div>
+        </aside>
 
-          <div class="setting-divider"></div>
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Chat Tab -->
+            <div class="tab-content active" id="chat-tab">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages"></div>
 
-          <div class="setting-group">
-            <div class="setting-label">DeepSeek</div>
-            <div class="setting-desc">Enables the DeepSeek Coder model option.</div>
-            <div class="setting-input-wrap">
-              <input class="setting-input" type="password" id="key-deepseek" placeholder="sk-…" autocomplete="off" spellcheck="false">
-              <div class="key-status unset" id="ks-deepseek">✕</div>
+                    <div class="chat-input-wrapper">
+                        <div class="chat-controls">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="enhanceCheckbox" checked>
+                                <span>Enhance Output</span>
+                            </label>
+                            <span class="model-badge" id="modelBadge">claude</span>
+                        </div>
+
+                        <form id="chatForm" class="chat-form">
+                            <div class="input-group">
+                                <textarea
+                                    id="userInput"
+                                    placeholder="Describe your game creation... (e.g., 'build an obstacle course with 10 platforms and a finish line')"
+                                    rows="3"
+                                ></textarea>
+                                <button type="submit" class="btn-send" id="sendBtn">
+                                    <span>Send</span>
+                                    <span class="icon">➜</span>
+                                </button>
+                            </div>
+                        </form>
+
+                        <div class="help-text">
+                            💡 Tip: Be specific! Describe what you want: colors, sizes, positions, interactions
+                        </div>
+                    </div>
+                </div>
             </div>
-          </div>
 
-          <div class="setting-divider"></div>
+            <!-- Models Tab -->
+            <div class="tab-content" id="models-tab">
+                <div class="models-container">
+                    <h2>AI Models</h2>
+                    <p class="description">Select an AI model to power your creations. Each has different speeds and capabilities.</p>
 
-          <button class="save-btn" id="save-keys-btn">Save Keys</button>
-          <div class="setting-desc">Keys are saved to a local <code>.env</code> file and persist across restarts.</div>
-        </div>
-      </div>
+                    <div class="models-grid" id="modelsGrid">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="model-info">
+                        <h3>Model Information</h3>
+                        <table class="info-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Speed</th>
+                                    <th>Quality</th>
+                                    <th>Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modelTable">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Errors Tab -->
+            <div class="tab-content" id="errors-tab">
+                <div class="errors-container">
+                    <h2>Error Tracking & Analytics</h2>
+
+                    <div class="error-stats">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalErrors">0</div>
+                            <div class="stat-label">Total Errors</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="fixedErrors">0</div>
+                            <div class="stat-label">Fixed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="unfixedErrors">0</div>
+                            <div class="stat-label">Unfixed</div>
+                        </div>
+                    </div>
+
+                    <div class="errors-severity">
+                        <h3>By Severity</h3>
+                        <div class="severity-bars">
+                            <div class="severity-bar">
+                                <span class="severity-critical"></span>
+                                <span>Critical: <span id="severityCritical">0</span></span>
+                            </div>
+                            <div class="severity-bar">
+                                <span class="severity-high"></span>
+                                <span>High: <span id="severityHigh">0</span></span>
+                            </div>
+                            <div class="severity-bar">
+                                <span class="severity-medium"></span>
+                                <span>Medium: <span id="severityMedium">0</span></span>
+                            </div>
+                            <div class="severity-bar">
+                                <span class="severity-low"></span>
+                                <span>Low: <span id="severityLow">0</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="errors-common">
+                        <h3>Most Common Errors</h3>
+                        <div id="commonErrors" class="error-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <button class="btn-secondary" id="exportErrors">📥 Export Errors</button>
+                </div>
+            </div>
+
+            <!-- Stats Tab -->
+            <div class="tab-content" id="stats-tab">
+                <div class="stats-container">
+                    <h2>Performance Statistics</h2>
+
+                    <div class="stats-grid">
+                        <div class="stat-card large">
+                            <div class="stat-label">Total Executions</div>
+                            <div class="stat-value" id="totalExecutions">0</div>
+                        </div>
+                        <div class="stat-card large">
+                            <div class="stat-label">Success Rate</div>
+                            <div class="stat-value" id="successRate">0%</div>
+                        </div>
+                        <div class="stat-card large">
+                            <div class="stat-label">Avg Commands/Execution</div>
+                            <div class="stat-value" id="avgCommands">0</div>
+                        </div>
+                        <div class="stat-card large">
+                            <div class="stat-label">Active Connections</div>
+                            <div class="stat-value" id="activeConnections">0</div>
+                        </div>
+                    </div>
+
+                    <div class="recent-executions">
+                        <h3>Recent Executions</h3>
+                        <div id="recentExecList" class="execution-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plugin Tab -->
+            <div class="tab-content" id="plugins-tab">
+                <div class="plugins-container">
+                    <h2>Plugin Status</h2>
+
+                    <div class="plugin-status">
+                        <div class="status-indicator" id="pluginStatus">
+                            <span class="status-dot disconnected"></span>
+                            <span class="status-text">Disconnected</span>
+                        </div>
+                        <p class="status-description" id="statusDescription">
+                            Plugin not detected. Make sure Roblox Studio is running and the plugin is installed.
+                        </p>
+                    </div>
+
+                    <div class="installation-guide">
+                        <h3>📦 Installation Guide</h3>
+                        <ol>
+                            <li>Copy these files to your Roblox Plugins folder:
+                                <ul>
+                                    <li><code>plugin/Main.lua</code></li>
+                                    <li><code>plugin/WebSocketClient.lua</code></li>
+                                    <li><code>plugin/Controller.lua</code></li>
+                                    <li><code>plugin/InstanceManager.lua</code></li>
+                                </ul>
+                            </li>
+                            <li>Find your Roblox plugins folder:
+                                <ul>
+                                    <li><strong>Windows:</strong> <code>%APPDATA%\Roblox\Plugins\</code></li>
+                                    <li><strong>Mac:</strong> <code>~/Library/Application Support/Roblox/Plugins/</code></li>
+                                </ul>
+                            </li>
+                            <li>Restart Roblox Studio</li>
+                            <li>Open any place and click <strong>Plugins → VortexDQ AI</strong></li>
+                        </ol>
+                    </div>
+
+                    <div class="connections-list">
+                        <h3>Connected Plugins</h3>
+                        <div id="connectionsList" class="connections">
+                            <p class="no-connections">No connections yet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Settings Tab -->
+            <div class="tab-content" id="settings-tab">
+                <div class="settings-container">
+                    <h2>Settings</h2>
+                    <p class="description">Enter your API keys to enable AI models. Keys are saved to a local <code>.env</code> file.</p>
+
+                    <div id="no-key-banner" class="no-key-banner hidden">
+                        ⚠️ No API keys configured — enter at least one key below to start using AI.
+                    </div>
+
+                    <div class="settings-form">
+                        <div class="setting-group">
+                            <label class="setting-label">Anthropic API Key <span class="key-status-inline" id="ks-anthropic"></span></label>
+                            <p class="setting-desc">Powers Claude Sonnet, Haiku, and Opus Pro models.</p>
+                            <input class="setting-input" type="password" id="key-anthropic" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
+                        </div>
+
+                        <div class="setting-group">
+                            <label class="setting-label">Google Gemini API Key <span class="key-status-inline" id="ks-gemini"></span></label>
+                            <p class="setting-desc">Enables the Gemini 2.0 Flash model.</p>
+                            <input class="setting-input" type="password" id="key-gemini" placeholder="AIza…" autocomplete="off" spellcheck="false">
+                        </div>
+
+                        <div class="setting-group">
+                            <label class="setting-label">DeepSeek API Key <span class="key-status-inline" id="ks-deepseek"></span></label>
+                            <p class="setting-desc">Enables the DeepSeek Coder model.</p>
+                            <input class="setting-input" type="password" id="key-deepseek" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                        </div>
+
+                        <button class="btn-primary" id="save-keys-btn">💾 Save Keys</button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
     </div>
 
-  </main>
-</div>
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
 
-<!-- Toasts -->
-<div id="toasts"></div>
+    <!-- Loading Spinner -->
+    <div id="loadingSpinner" class="loading-spinner">
+        <div class="spinner"></div>
+        <p>Processing...</p>
+    </div>
 
-<!-- Overlay spinner -->
-<div id="overlay" class="hidden">
-  <div id="overlay-card">
-    <div id="spinner"></div>
-    <div id="overlay-msg">Processing…</div>
-  </div>
-</div>
-
-<script src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
