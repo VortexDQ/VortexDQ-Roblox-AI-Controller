@@ -1,486 +1,337 @@
-// VortexDQ AI Controller - Frontend
-class VortexDQUI {
+'use strict';
+
+class VortexDQ {
   constructor() {
-    this.chatMessages = document.getElementById('chatMessages');
-    this.userInput = document.getElementById('userInput');
-    this.chatForm = document.getElementById('chatForm');
-    this.sendBtn = document.getElementById('sendBtn');
-    this.enhanceCheckbox = document.getElementById('enhanceCheckbox');
-    this.modelBadge = document.getElementById('modelBadge');
-    this.toastContainer = document.getElementById('toastContainer');
-    this.loadingSpinner = document.getElementById('loadingSpinner');
+    this.$ = id => document.getElementById(id);
+    this.activeModel = null;
+    this.isLoading   = false;
+    this.enhanced    = true;
 
-    this.activeModel = 'claude';
-    this.chatHistory = [];
-
-    this.initEventListeners();
-    this.loadModels();
-    this.loadStats();
-    this.loadErrors();
-    this.loadConnections();
-
-    // Refresh stats every 5 seconds
-    setInterval(() => this.loadStats(), 5000);
-    setInterval(() => this.loadConnections(), 3000);
-    setInterval(() => this.loadErrors(), 5000);
+    this._bind();
+    this._refresh();
+    setInterval(() => this._refresh(), 4000);
+    setInterval(() => this._pollPlugin(), 3000);
   }
 
-  initEventListeners() {
-    // Chat
-    this.chatForm.addEventListener('submit', (e) => this.handleSendMessage(e));
-    this.userInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.ctrlKey) {
-        this.chatForm.dispatchEvent(new Event('submit'));
-      }
+  // ── DOM wiring ────────────────────────────────────────────────
+
+  _bind() {
+    document.querySelectorAll('.nav-btn').forEach(btn =>
+      btn.addEventListener('click', () => this._switchTab(btn))
+    );
+
+    this.$('chatForm').addEventListener('submit', e => { e.preventDefault(); this._send(); });
+
+    this.$('userInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); this._send(); }
+      setTimeout(() => {
+        const el = this.$('userInput');
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+      });
     });
 
-    // Navigation
-    document.querySelectorAll('.nav-item').forEach(btn => {
-      btn.addEventListener('click', (e) => this.switchTab(e.currentTarget));
+    this.$('enhanceToggle').addEventListener('change', e => { this.enhanced = e.target.checked; });
+    this.$('clearChatBtn').addEventListener('click', () => {
+      if (confirm('Clear all messages?')) this.$('messages').innerHTML = '';
     });
+    this.$('exportBtn').addEventListener('click', () => this._exportErrors());
 
-    // Models
-    document.addEventListener('click', (e) => {
-      if (e.target.classList.contains('model-card')) {
-        this.switchModel(e.target.dataset.model);
-      }
+    this.$('models-grid').addEventListener('click', e => {
+      const card = e.target.closest('.model-card');
+      if (card) this._setModel(card.dataset.model);
     });
-
-    // Clear chat
-    document.getElementById('clearChat').addEventListener('click', () => this.clearChat());
-
-    // Export errors
-    document.getElementById('exportErrors').addEventListener('click', () => this.exportErrors());
   }
 
-  async handleSendMessage(e) {
-    e.preventDefault();
+  // ── Tab switching ─────────────────────────────────────────────
 
-    const prompt = this.userInput.value.trim();
-    if (!prompt) return;
+  _switchTab(btn) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const id = btn.dataset.tab;
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    if (id === 'models') this._loadModels();
+    if (id === 'stats')  this._loadStats();
+    if (id === 'errors') this._loadErrors();
+  }
 
-    // Check for special commands
-    if (prompt.toLowerCase().includes('/analyze')) {
-      this.userInput.value = '';
-      return this.analyzeGame(prompt.includes('deep'));
-    }
+  // ── Send message ──────────────────────────────────────────────
 
-    if (prompt.toLowerCase().includes('/scan')) {
-      this.userInput.value = '';
-      return this.scanGame();
-    }
+  async _send() {
+    const input = this.$('userInput');
+    const text  = input.value.trim();
+    if (!text || this.isLoading) return;
 
-    // Regular execution
-    this.addMessage('user', prompt);
-    this.userInput.value = '';
-
-    // Show loading
-    this.setLoading(true);
-    this.sendBtn.disabled = true;
+    input.value = '';
+    input.style.height = 'auto';
+    this._addMsg('user', text);
+    const typing = this._addTyping();
+    this._setLoading(true);
 
     try {
-      const response = await fetch('/api/execute', {
-        method: 'POST',
+      const res  = await fetch('/api/execute', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          model: this.activeModel,
-          enhance: this.enhanceCheckbox.checked
-        })
+        body:    JSON.stringify({ prompt: text, model: this.activeModel, enhance: this.enhanced }),
       });
+      const data = await res.json();
+      typing.remove();
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!res.ok || !data.success) throw new Error(data.error || 'HTTP ' + res.status);
 
-      const data = await response.json();
+      const a     = data.analysis || {};
+      const ok    = (data.results || []).filter(r => r.success).length;
+      const total = (data.results || []).length;
+      const reply =
+        'Executed ' + (a.commandCount || total) + ' command' + ((a.commandCount || total) !== 1 ? 's' : '') +
+        ' in ' + (a.executionTime || '?') + '\n' +
+        'Types: ' + (a.types || []).join(', ') + '\n' +
+        'Complexity: ' + (a.complexity || '?') + '  |  ' +
+        'Success: ' + ok + '/' + total;
 
-      if (data.success) {
-        const analysis = data.analysis;
-        const resultText = `✓ Executed ${analysis.commandCount} commands in ${analysis.executionTime}
-
-Commands: ${analysis.types.join(', ')}
-Complexity: ${analysis.complexity}
-Success Rate: ${data.results.filter(r => r.success).length}/${data.results.length}`;
-
-        this.addMessage('ai', resultText, 'success');
-        this.showToast(`Game updated with ${analysis.commandCount} commands`, 'success');
-      } else {
-        throw new Error(data.error || 'Execution failed');
-      }
-
-      this.chatHistory.push({ role: 'user', content: prompt });
-      this.chatHistory.push({ role: 'assistant', content: data.analysis.types.join(', ') });
-    } catch (error) {
-      this.addMessage('ai', `Error: ${error.message}`, 'error');
-      this.showToast(error.message, 'error');
+      this._addMsg('ai', reply, 'success');
+      this._toast((a.commandCount || total) + ' commands applied', 'success');
+    } catch (err) {
+      typing.remove();
+      this._addMsg('ai', 'Error: ' + err.message, 'error');
+      this._toast(err.message, 'error');
     } finally {
-      this.setLoading(false);
-      this.sendBtn.disabled = false;
+      this._setLoading(false);
     }
   }
 
-  async analyzeGame(deep = false) {
-    this.setLoading(true);
+  // ── Messages ──────────────────────────────────────────────────
 
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deep })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const analysis = data.analysis;
-        const msg = `📊 Game Analysis:
-
-Total Instances: ${analysis.stats.totalInstances}
-Complexity: ${analysis.stats.complexity}
-Depth: ${analysis.stats.depth} levels
-
-Suggestions:
-${analysis.suggestions.map(s => `• ${s.message}`).join('\n')}
-
-Examples to try:
-${analysis.examples.map(e => `• "${e}"`).join('\n')}`;
-
-        this.addMessage('ai', msg);
-        this.showToast('Game analyzed successfully', 'success');
-      }
-    } catch (error) {
-      this.addMessage('ai', `Analysis error: ${error.message}`, 'error');
-    } finally {
-      this.setLoading(false);
-    }
-  }
-
-  async scanGame() {
-    this.setLoading(true);
-
-    try {
-      const response = await fetch('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const report = data.report;
-        let msg = `🔍 Security Scan Complete\n`;
-        msg += `Status: ${report.status.toUpperCase()}\n\n`;
-        msg += report.summary + '\n\n';
-
-        if (report.details && report.details.length > 0) {
-          report.details.forEach(detail => {
-            msg += `\n${detail.category}\n`;
-            detail.items.forEach(item => {
-              msg += `  • ${item.location}: ${item.issue}\n`;
-              msg += `    → ${item.suggestion}\n`;
-            });
-          });
-        }
-
-        this.addMessage('ai', msg);
-        this.showToast('Game scanned', data.report.status === 'clean' ? 'success' : 'warning');
-      }
-    } catch (error) {
-      this.addMessage('ai', `Scan error: ${error.message}`, 'error');
-    } finally {
-      this.setLoading(false);
-    }
-  }
-
-  addMessage(role, content, type = 'normal') {
-    const message = document.createElement('div');
-    message.className = `message message-${role}`;
+  _addMsg(role, text, type) {
+    const box    = this.$('messages');
+    const div    = document.createElement('div');
+    div.className = 'msg ' + role;
 
     const avatar = document.createElement('div');
-    avatar.className = 'message-avatar';
-    avatar.textContent = role === 'user' ? '👤' : '🤖';
+    avatar.className = 'msg-avatar';
+    avatar.textContent = role === 'user' ? '\u{1F464}' : '\u{1F916}';
 
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content';
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble' + (type ? ' ' + type : '');
+    bubble.textContent = text;
 
-    const text = document.createElement('div');
-    text.className = 'message-text';
-    text.textContent = content;
-    contentDiv.appendChild(text);
+    const time = document.createElement('div');
+    time.className = 'msg-time';
+    time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    if (role === 'ai' && type === 'success') {
-      const analysis = document.createElement('div');
-      analysis.className = 'message-analysis';
-      analysis.innerHTML = content.replace(/\n/g, '<br>');
-      contentDiv.appendChild(analysis);
-    }
-
-    message.appendChild(avatar);
-    message.appendChild(contentDiv);
-
-    this.chatMessages.appendChild(message);
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    const inner = document.createElement('div');
+    inner.appendChild(bubble);
+    inner.appendChild(time);
+    div.appendChild(avatar);
+    div.appendChild(inner);
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
   }
 
-  async loadModels() {
+  _addTyping() {
+    const box = this.$('messages');
+    const div = document.createElement('div');
+    div.className = 'msg ai';
+    div.innerHTML =
+      '<div class="msg-avatar">\u{1F916}</div>' +
+      '<div class="msg-bubble" style="padding:14px 16px;">' +
+      '<span class="typing-dot"></span>' +
+      '<span class="typing-dot"></span>' +
+      '<span class="typing-dot"></span>' +
+      '</div>';
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
+  }
+
+  // ── Models ────────────────────────────────────────────────────
+
+  async _loadModels() {
     try {
-      const response = await fetch('/api/models');
-      const data = await response.json();
-
-      // Update badge
-      this.modelBadge.textContent = data.active;
+      const res  = await fetch('/api/models');
+      const data = await res.json();
       this.activeModel = data.active;
+      this.$('activeBadge').textContent = data.active || '—';
 
-      // Update grid
-      const grid = document.getElementById('modelsGrid');
+      const grid = this.$('models-grid');
       grid.innerHTML = '';
 
-      data.available.forEach(model => {
+      (data.available || []).forEach(m => {
         const card = document.createElement('div');
-        card.className = `model-card ${model.active ? 'active' : ''}`;
-        card.dataset.model = model.name;
-
-        const speedBar = this.getSpeedBar(model.speed);
-        const qualityBar = this.getQualityBar(model.quality);
-
-        card.innerHTML = `
-          <div class="model-name">${model.name}</div>
-          <div class="model-stats">
-            <div class="model-stat">
-              <span>Speed</span>
-              <span>${speedBar}</span>
-            </div>
-            <div class="model-stat">
-              <span>Quality</span>
-              <span>${qualityBar}</span>
-            </div>
-            <div class="model-stat">
-              <span>Type</span>
-              <span>${model.cost}</span>
-            </div>
-          </div>
-        `;
-
+        card.className   = 'model-card' + (m.active ? ' active' : '');
+        card.dataset.model = m.name;
+        card.innerHTML =
+          '<div class="model-name">' + m.name +
+          (m.active ? '<span class="model-badge-active">Active</span>' : '') +
+          '</div>' +
+          '<div class="model-row"><span>Speed</span>' +
+          '<div class="model-bar-bg"><div class="model-bar-fill" style="width:' + Math.round(m.speed * 100) + '%"></div></div>' +
+          '<span>' + Math.round(m.speed * 100) + '%</span></div>' +
+          '<div class="model-row"><span>Quality</span>' +
+          '<div class="model-bar-bg"><div class="model-bar-fill" style="width:' + Math.round(m.quality * 100) + '%"></div></div>' +
+          '<span>' + Math.round(m.quality * 100) + '%</span></div>' +
+          '<div class="model-cost">' + m.cost + '</div>';
         grid.appendChild(card);
       });
-
-      // Update table
-      const tbody = document.getElementById('modelTable');
-      tbody.innerHTML = '';
-
-      data.available.forEach(model => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td><strong>${model.name}</strong></td>
-          <td>${(model.speed * 100).toFixed(0)}%</td>
-          <td>${(model.quality * 100).toFixed(0)}%</td>
-          <td>${model.cost}</td>
-        `;
-        tbody.appendChild(row);
-      });
-    } catch (error) {
-      console.error('Failed to load models:', error);
+    } catch (e) {
+      console.error('[UI] loadModels:', e);
     }
   }
 
-  async switchModel(modelName) {
+  async _setModel(name) {
     try {
-      const response = await fetch('/api/models/set', {
+      const res  = await fetch('/api/models/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelName })
+        body: JSON.stringify({ model: name }),
       });
-
-      const data = await response.json();
+      const data = await res.json();
       if (data.success) {
-        this.activeModel = modelName;
-        this.modelBadge.textContent = modelName;
-        this.loadModels();
-        this.showToast(`Switched to ${modelName}`, 'success');
+        this.activeModel = name;
+        this.$('activeBadge').textContent = name;
+        this._loadModels();
+        this._toast('Switched to ' + name, 'success');
       }
-    } catch (error) {
-      this.showToast(`Error switching model: ${error.message}`, 'error');
+    } catch (e) {
+      this._toast('Switch failed: ' + e.message, 'error');
     }
   }
 
-  async loadStats() {
+  // ── Stats ─────────────────────────────────────────────────────
+
+  async _loadStats() {
     try {
-      const response = await fetch('/api/stats');
-      const data = await response.json();
+      const res  = await fetch('/api/stats');
+      const data = await res.json();
+      const se   = data.smartExecutor || {};
 
-      document.getElementById('totalExecutions').textContent = data.smartExecutor.totalExecutions;
-      document.getElementById('successRate').textContent = data.smartExecutor.successRate;
-      document.getElementById('avgCommands').textContent = data.smartExecutor.averageCommandsPerExecution;
-      document.getElementById('activeConnections').textContent = data.connections;
+      this.$('s-executions').textContent = se.totalExecutions ?? 0;
+      this.$('s-success').textContent    = se.successRate     ?? '—';
+      this.$('s-duration').textContent   = se.avgDuration     ?? '—';
+      this.$('s-plugin').textContent     = data.connections > 0 ? 'Online' : 'Offline';
 
-      const execList = document.getElementById('recentExecList');
-      execList.innerHTML = '';
-
-      data.smartExecutor.recentExecutions.slice(-5).forEach(exec => {
-        const item = document.createElement('div');
-        item.className = 'execution-item';
-        item.innerHTML = `
-          <div>
-            <div>${exec.commandCount} commands</div>
-            <div class="execution-time">${new Date(exec.timestamp).toLocaleTimeString()}</div>
-          </div>
-          <div>${exec.successCount}/${exec.commandCount} success</div>
-        `;
-        execList.appendChild(item);
+      const list = this.$('recent-exec');
+      list.innerHTML = '';
+      (se.recentExecutions || []).slice(-8).reverse().forEach(e => {
+        const row  = document.createElement('div');
+        row.className = 'exec-row';
+        const ok   = e.succeeded   ?? e.successCount ?? 0;
+        const tot  = e.commandCount ?? 0;
+        const fail = tot - ok;
+        row.innerHTML =
+          '<span>' + tot + ' cmd' + (tot !== 1 ? 's' : '') + '</span>' +
+          '<span class="exec-ok">' + ok + ' ok</span>' +
+          (fail ? '<span class="exec-fail">' + fail + ' fail</span>' : '') +
+          '<span class="exec-time">' + new Date(e.ts || e.timestamp).toLocaleTimeString() + '</span>';
+        list.appendChild(row);
       });
-    } catch (error) {
-      console.error('Failed to load stats:', error);
+    } catch (e) {
+      console.error('[UI] loadStats:', e);
     }
   }
 
-  async loadErrors() {
+  // ── Errors ────────────────────────────────────────────────────
+
+  async _loadErrors() {
     try {
-      const response = await fetch('/api/errors');
-      const data = await response.json();
+      const res  = await fetch('/api/errors');
+      const data = await res.json();
 
-      document.getElementById('totalErrors').textContent = data.totalErrors;
-      document.getElementById('fixedErrors').textContent = data.fixedErrors;
-      document.getElementById('unfixedErrors').textContent = data.unfixedErrors;
+      this.$('e-total').textContent    = data.totalErrors        ?? 0;
+      this.$('e-fixed').textContent    = data.fixedErrors        ?? 0;
+      this.$('e-unfixed').textContent  = data.unfixedErrors      ?? 0;
+      this.$('e-critical').textContent = data.bySeverity?.critical ?? 0;
 
-      document.getElementById('severityCritical').textContent = data.bySeverity.critical;
-      document.getElementById('severityHigh').textContent = data.bySeverity.high;
-      document.getElementById('severityMedium').textContent = data.bySeverity.medium;
-      document.getElementById('severityLow').textContent = data.bySeverity.low;
+      const list  = this.$('error-list');
+      list.innerHTML = '';
+      const items = data.mostCommon || [];
 
-      const errorsList = document.getElementById('commonErrors');
-      errorsList.innerHTML = '';
-
-      if (data.mostCommon.length === 0) {
-        errorsList.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">No errors recorded</p>';
-      } else {
-        data.mostCommon.forEach(err => {
-          const item = document.createElement('div');
-          item.className = 'error-item';
-          item.innerHTML = `
-            <div class="error-message">${err.message}</div>
-            <div class="error-suggestion">Occurrences: ${err.count} ${err.suggestedFix ? '| Fix: ' + err.suggestedFix : ''}</div>
-          `;
-          errorsList.appendChild(item);
-        });
+      if (!items.length) {
+        list.innerHTML = '<div style="color:var(--text3);text-align:center;padding:32px;">No errors recorded</div>';
+        return;
       }
-    } catch (error) {
-      console.error('Failed to load errors:', error);
+
+      items.forEach(err => {
+        const sev = (data.recentErrors || []).find(e => e.message === err.message)?.severity || '';
+        const div = document.createElement('div');
+        div.className = 'err-item sev-' + sev;
+        div.innerHTML =
+          '<div class="err-msg">'  + this._esc(err.message) + '</div>' +
+          '<div class="err-meta">Occurrences: ' + err.count + '</div>' +
+          (err.suggestedFix ? '<div class="err-fix">Fix: ' + this._esc(err.suggestedFix) + '</div>' : '');
+        list.appendChild(div);
+      });
+    } catch (e) {
+      console.error('[UI] loadErrors:', e);
     }
   }
 
-  async loadConnections() {
+  async _exportErrors() {
     try {
-      const response = await fetch('/api/status');
-      const data = await response.json();
-
-      const list = document.getElementById('connectionsList');
-
-      if (data.connections.length === 0) {
-        list.innerHTML = '<p class="no-connections">No connections yet</p>';
-        document.querySelector('.status-dot').className = 'status-dot disconnected';
-        document.querySelector('.status-text').textContent = 'Disconnected';
-      } else {
-        list.innerHTML = '';
-        document.querySelector('.status-dot').className = 'status-dot connected';
-        document.querySelector('.status-text').textContent = 'Connected';
-
-        data.connections.forEach(conn => {
-          const item = document.createElement('div');
-          item.className = 'connection-item';
-          const status = conn.connected ? '🟢' : '🔴';
-          item.innerHTML = `
-            <span>${status} ${conn.id}</span>
-            <span style="color: var(--text-secondary); font-size: 12px;">${new Date(conn.lastUpdate).toLocaleTimeString()}</span>
-          `;
-          list.appendChild(item);
-        });
-      }
-    } catch (error) {
-      console.error('Failed to load connections:', error);
-    }
-  }
-
-  switchTab(btn) {
-    // Update nav
-    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-
-    // Update content
-    const tabName = btn.dataset.tab;
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.getElementById(`${tabName}-tab`).classList.add('active');
-  }
-
-  clearChat() {
-    if (confirm('Clear all chat messages?')) {
-      this.chatMessages.innerHTML = '';
-      this.chatHistory = [];
-      this.showToast('Chat cleared', 'info');
-    }
-  }
-
-  async exportErrors() {
-    try {
-      const response = await fetch('/api/errors/export?format=csv');
-      const csv = await response.text();
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `errors-${Date.now()}.csv`;
+      const res = await fetch('/api/errors/export?format=csv');
+      const csv = await res.text();
+      const a   = document.createElement('a');
+      a.href     = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'vortexdq-errors-' + Date.now() + '.csv';
       a.click();
-
-      this.showToast('Errors exported', 'success');
-    } catch (error) {
-      this.showToast(`Export failed: ${error.message}`, 'error');
+      this._toast('Errors exported', 'success');
+    } catch (e) {
+      this._toast('Export failed: ' + e.message, 'error');
     }
   }
 
-  showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = `${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'} ${message}`;
+  // ── Plugin status ─────────────────────────────────────────────
 
-    this.toastContainer.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-  }
-
-  setLoading(active) {
-    if (active) {
-      this.loadingSpinner.classList.add('active');
-    } else {
-      this.loadingSpinner.classList.remove('active');
+  async _pollPlugin() {
+    try {
+      const res  = await fetch('/api/status');
+      const data = await res.json();
+      const ok   = (data.connections || []).some(c => c.connected);
+      document.querySelector('.pill-dot').className = 'pill-dot ' + (ok ? 'online' : 'offline');
+      this.$('pluginStatus').textContent = ok ? 'Plugin Online' : 'Plugin Offline';
+    } catch (_) {
+      document.querySelector('.pill-dot').className = 'pill-dot offline';
+      this.$('pluginStatus').textContent = 'Server Offline';
     }
   }
 
-  getSpeedBar(speed) {
-    const percentage = Math.round(speed * 100);
-    return `${percentage}%`;
+  // ── Initial refresh ───────────────────────────────────────────
+
+  async _refresh() {
+    try {
+      const res  = await fetch('/api/models');
+      if (!res.ok) return;
+      const data = await res.json();
+      this.activeModel = data.active;
+      this.$('activeBadge').textContent = data.active || '—';
+    } catch (_) {}
   }
 
-  getQualityBar(quality) {
-    const percentage = Math.round(quality * 100);
-    return `${percentage}%`;
+  // ── Utilities ─────────────────────────────────────────────────
+
+  _setLoading(active) {
+    this.isLoading = active;
+    this.$('spinner').hidden   = !active;
+    this.$('sendBtn').disabled = active;
+  }
+
+  _toast(msg, type) {
+    type = type || 'info';
+    const t    = document.createElement('div');
+    t.className = 'toast ' + type;
+    const icon  = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+    t.textContent = icon + '  ' + msg;
+    this.$('toasts').appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 280); }, 3000);
+  }
+
+  _esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }
 
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-  window.vortexUI = new VortexDQUI();
-
-  // Auto-connect health check
-  setInterval(async () => {
-    try {
-      await fetch('/api/health');
-    } catch (error) {
-      console.warn('Server unreachable');
-    }
-  }, 10000);
-});
+document.addEventListener('DOMContentLoaded', () => { window._vdq = new VortexDQ(); });
