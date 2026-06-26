@@ -7,8 +7,16 @@ You produce code and builds that ACTUALLY WORK, are production-quality, and exce
 You never cut corners. You never produce broken scripts. Everything you create is complete and functional.
 
 ━━━ RESPONSE FORMAT ━━━
-Return ONLY a raw JSON array of command objects. Zero markdown. Zero prose. Zero code fences.
-The array is executed immediately — every command must be valid, complete, and ordered correctly.
+Return ONLY a raw JSON object. Zero markdown. Zero code fences.
+{
+  "message": "Your conversational reply to the user — always write this.",
+  "commands": [ ...command objects in execution order... ]
+}
+
+• message — REQUIRED. Talk naturally: explain what you're building, answer questions, give tips.
+  Be concise but helpful (2-5 sentences). Never leave this empty.
+• commands — Studio commands to run. Use [] when only answering a question with no build needed.
+Every command must be valid, complete, and correctly ordered (folders before children, remotes before scripts).
 
 ━━━ COMMAND SCHEMA ━━━
 Each element: { "action": "ActionName", "data": { ...fields } }
@@ -93,7 +101,8 @@ LIGHTING — Always make it stunning:
 • Module scripts in: ReplicatedStorage (shared) or ServerStorage (server-only)
 • CollectionService for tagging multi-instance systems
 • pcall() wrap all DataStore calls and risky operations
-• Never trust client data — validate everything on the server
+• NEVER leave placeholder comments like "-- TODO" or "-- add code here"
+• Every script must run immediately when Play is pressed — wire up all events
 
 ━━━ MULTI-LAYER SYSTEM PATTERN ━━━
 Every complex mechanic needs ALL THREE layers:
@@ -186,9 +195,9 @@ Create in this order:
 • Minimum commands for maximum impact
 • Never leave anything half-done — if you start a system, finish it completely`;
 
-const FAST_SYSTEM = `You are VortexDQ — elite Roblox AI. Return ONLY a JSON command array, no markdown.
-Use SmoothPlastic/Neon/Glass. Anchor parts. Modern Lua: task.* APIs only, never wait().
-Future lighting always. Make builds stunning AND functional. Complete working scripts.`;
+const FAST_SYSTEM = `You are VortexDQ — elite Roblox AI. Return ONLY JSON: {"message":"...", "commands":[...]} — no markdown.
+Always write a friendly message. Use SmoothPlastic/Neon/Glass. Anchor parts. Modern Lua: task.* only, never wait().
+Scripts must be COMPLETE and runnable — no placeholders, no "-- TODO", no pseudocode. Future lighting always.`;
 
 // ─── Model implementations ────────────────────────────────────────────────────
 
@@ -202,10 +211,12 @@ class ClaudeModel {
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
     const isFullGame = /\b(full game|complete game|entire game|whole game|make a game|create a game)\b/i.test(prompt);
-    const isComplex  = /\b(gun|weapon|cuff|arrest|restrain|vehicle|car|bike|door|keycard|datastore|save|leaderboard|combat|system|mechanic|tool|ability)\b/i.test(prompt);
-    const model      = (isFullGame || isComplex) ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
-    const maxTokens  = isFullGame ? 8192 : isComplex ? 6144 : 4096;
-    const system     = (this.fast && !isFullGame && !isComplex) ? FAST_SYSTEM : BASE_SYSTEM;
+    const isComplex  = /\b(gun|weapon|cuff|arrest|restrain|vehicle|car|bike|door|keycard|datastore|save|leaderboard|combat|system|mechanic|tool|ability|inventory|shop|npc|round|spawn|checkpoint|ui|gui|hud)\b/i.test(prompt);
+    const isScript   = /\b(script|code|lua|function|module|remote|localscript|serverscript|tool script|working|fix|debug)\b/i.test(prompt);
+    const useSonnet  = isFullGame || isComplex || isScript || (this.fast === false);
+    const model      = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+    const maxTokens  = isFullGame ? 8192 : (isComplex || isScript) ? 8192 : 4096;
+    const system     = (this.fast && !isFullGame && !isComplex && !isScript) ? FAST_SYSTEM : BASE_SYSTEM;
 
     // Build message array: inject history first, then current prompt with game context
     const messages = [];
@@ -239,37 +250,61 @@ class ClaudeModel {
           'anthropic-version': '2023-06-01',
           'content-type':      'application/json',
         },
-        timeout: isFullGame ? 90000 : isComplex ? 45000 : 20000,
+        timeout: isFullGame ? 90000 : (isComplex || isScript) ? 45000 : 20000,
       }
     );
 
-    const text     = response.data.content[0].text;
-    const commands = this._parse(text);
-    const latency  = Date.now() - t0;
+    const text      = response.data.content[0].text;
+    const parsed    = this._parse(text);
+    const latency   = Date.now() - t0;
 
-    console.log(`[Claude/${model}] ${commands.length} commands in ${latency}ms`);
+    console.log(`[Claude/${model}] ${parsed.commands.length} cmds, ${latency}ms — ${parsed.message.slice(0, 72)}${parsed.message.length > 72 ? '…' : ''}`);
 
     return {
       success:   true,
-      commands,
+      message:   parsed.message,
+      commands:  parsed.commands,
       model:     `claude/${model}`,
       latency,
       isFullGame,
       isComplex,
       rawText:   text,
-      analysis:  this._analyse(commands),
+      analysis:  this._analyse(parsed.commands),
     };
   }
 
   _parse(text) {
     let s = text.trim();
     s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-    const start = s.indexOf('[');
-    const end   = s.lastIndexOf(']');
-    if (start === -1 || end === -1) throw new Error('No JSON array in AI response');
-    const arr = JSON.parse(s.slice(start, end + 1));
-    if (!Array.isArray(arr)) throw new Error('AI response is not an array');
-    return arr;
+
+    const objStart = s.indexOf('{');
+    const objEnd   = s.lastIndexOf('}');
+    if (objStart !== -1 && objEnd > objStart) {
+      try {
+        const obj = JSON.parse(s.slice(objStart, objEnd + 1));
+        if (obj && Array.isArray(obj.commands)) {
+          const message = typeof obj.message === 'string' && obj.message.trim()
+            ? obj.message.trim()
+            : this._defaultMessage(obj.commands);
+          return { message, commands: obj.commands };
+        }
+      } catch (_) {}
+    }
+
+    const arrStart = s.indexOf('[');
+    const arrEnd   = s.lastIndexOf(']');
+    if (arrStart === -1 || arrEnd === -1) throw new Error('No JSON object or array in AI response');
+    const arr = JSON.parse(s.slice(arrStart, arrEnd + 1));
+    if (!Array.isArray(arr)) throw new Error('AI response is not a command array');
+    return { message: this._defaultMessage(arr), commands: arr };
+  }
+
+  _defaultMessage(commands) {
+    if (!commands.length) {
+      return 'Happy to help — tell me what you want to build or ask me anything about your game.';
+    }
+    const types = [...new Set(commands.map(c => c.action))];
+    return `On it — building ${commands.length} step${commands.length !== 1 ? 's' : ''} in Studio (${types.slice(0, 5).join(', ')}${types.length > 5 ? ', …' : ''}).`;
   }
 
   _analyse(commands) {

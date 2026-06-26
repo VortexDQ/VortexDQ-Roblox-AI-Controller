@@ -69,17 +69,22 @@ class CommandEngine extends EventEmitter {
       });
     }
 
-    // Fire writes in dependency order (creates before mutates)
-    for (const cmd of writes) {
-      try {
-        const result = await this._sendAndWait(conn, {
+    // Queue all writes at once — plugin receives them in one poll batch
+    if (writes.length > 0) {
+      const writeResults = await Promise.allSettled(
+        writes.map(cmd => this._sendAndWait(conn, {
           ...cmd,
-          id: cmd.id || this.wsManager.generateCommandId()
+          id: cmd.id || this.wsManager.generateCommandId(),
+        }))
+      );
+      writeResults.forEach((r, i) => {
+        results.push({
+          action:  writes[i].action,
+          success: r.status === 'fulfilled',
+          result:  r.status === 'fulfilled' ? r.value : null,
+          error:   r.status === 'rejected'  ? r.reason?.message : null,
         });
-        results.push({ action: cmd.action, success: true, result });
-      } catch (e) {
-        results.push({ action: cmd.action, success: false, error: e.message });
-      }
+      });
     }
 
     return results;
@@ -121,8 +126,10 @@ class CommandEngine extends EventEmitter {
   }
 
   getActiveConnection() {
-    const active = this.wsManager.getAllConnections().find(c => c.ready);
-    return active ? active.id : null;
+    const active = this.wsManager.getAllConnections().find(
+      c => c.connected || c.ready || c.readyState === 1
+    );
+    return active ? active.id : this.wsManager.getPluginConnectionId();
   }
 
   cancelCommand(id) {

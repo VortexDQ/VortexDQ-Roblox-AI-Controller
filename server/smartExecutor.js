@@ -31,27 +31,30 @@ class SmartExecutor {
     };
   }
 
-  // Deduplicate, sort creates-first, apply quality defaults
+  // Deduplicate, sort creates-first (stable), apply quality defaults
   _prepare(commands, context) {
-    // Deduplicate by JSON fingerprint
+    const indexed = commands.map((cmd, i) => ({ cmd, i }));
+
     const seen = new Set();
-    const unique = commands.filter(cmd => {
+    const unique = indexed.filter(({ cmd }) => {
       const key = `${cmd.action}:${JSON.stringify(cmd.data)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    // Ensure creates come before mutations
     unique.sort((a, b) => {
-      const ac = CREATE_ACTIONS.has(a.action) ? 0 : 1;
-      const bc = CREATE_ACTIONS.has(b.action) ? 0 : 1;
-      return ac - bc;
+      const ac = CREATE_ACTIONS.has(a.cmd.action) ? 0 : 1;
+      const bc = CREATE_ACTIONS.has(b.cmd.action) ? 0 : 1;
+      if (ac !== bc) return ac - bc;
+      return a.i - b.i;
     });
+
+    const sorted = unique.map(({ cmd }) => cmd);
 
     // Quality defaults — anchor parts, give scripts names
     if (!context.skipEnhancements) {
-      unique.forEach(cmd => {
+      sorted.forEach(cmd => {
         if (cmd.action === 'CreatePart') {
           cmd.data.properties = cmd.data.properties || {};
           if (cmd.data.properties.Anchored === undefined) cmd.data.properties.Anchored = true;
@@ -63,22 +66,12 @@ class SmartExecutor {
       });
     }
 
-    return unique;
+    return sorted;
   }
 
   async _execute(commands) {
-    // Split into chunks of 50 and fire each chunk's parallel-safe commands concurrently
-    const CHUNK = 50;
-    const all   = [];
-
-    for (let i = 0; i < commands.length; i += CHUNK) {
-      const chunk   = commands.slice(i, i + CHUNK);
-      const results = await this.commandEngine.executeCommandBatch(chunk);
-      all.push(...results);
-      // No sleep between chunks — the engine handles ordering
-    }
-
-    return all;
+    // Send the full prepared list in one engine call — batch polling handles throughput
+    return this.commandEngine.executeCommandBatch(commands);
   }
 
   _record(commands, results, duration) {

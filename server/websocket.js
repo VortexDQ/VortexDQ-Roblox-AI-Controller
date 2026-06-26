@@ -67,23 +67,29 @@ class WebSocketManager extends EventEmitter {
   // ── Plugin HTTP interface ──────────────────────────────────────────────
 
   // Called by Express route: GET /plugin/poll
-  // Returns next queued command for the plugin, or empty object if nothing pending.
+  // Drains up to 50 queued commands per poll so Studio builds don't wait 100ms per command.
   pluginPoll(req, res) {
     this._pluginLastSeen  = Date.now();
     this._pluginConnected = true;
 
-    // Assign a stable id on first poll
     if (!this._pluginId) {
       this._pluginId = this.generateConnectionId();
       console.log(`[WS] Plugin connected via HTTP polling: ${this._pluginId}`);
       this.emit('connected', this._pluginId);
     }
 
-    const cmd = this._outboundQueue.shift();
-    if (cmd) {
-      res.json(cmd);
+    const BATCH_MAX = 50;
+    const items = [];
+    while (items.length < BATCH_MAX && this._outboundQueue.length > 0) {
+      items.push(this._outboundQueue.shift());
+    }
+
+    if (items.length === 0) {
+      res.json({});
+    } else if (items.length === 1) {
+      res.json(items[0]);
     } else {
-      res.json({});   // nothing to do
+      res.json({ type: 'batch', commands: items });
     }
   }
 
@@ -196,11 +202,17 @@ class WebSocketManager extends EventEmitter {
 
   getConnectionCount()  { return this._pluginConnected ? 1 : 0; }
   isPluginConnected()   { return this._pluginConnected; }
+  getPluginConnectionId() { return this._pluginConnected ? this._pluginId : null; }
   getLastKnownState()   { return this.lastKnownState; }
 
   getAllConnections() {
     if (!this._pluginConnected) return [];
-    return [{ id: this._pluginId, ready: true, lastUpdate: new Date(this._pluginLastSeen) }];
+    return [{
+      id: this._pluginId,
+      connected: true,
+      ready: true,
+      lastUpdate: new Date(this._pluginLastSeen),
+    }];
   }
 
   generateConnectionId() { return `conn_${Date.now()}_${Math.random().toString(36).slice(2,9)}`; }

@@ -108,7 +108,7 @@ class App {
 
     this.$('send-btn').addEventListener('click', () => this._send());
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); this._send(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send(); }
     });
     input.addEventListener('input', () => {
       input.style.height = 'auto';
@@ -185,48 +185,64 @@ class App {
 
     this._pushMsg('user', text);
     const typingEl = this._addTyping();
-    this._setLoading(true, 'Generating…');
+    this._setLoading(true, 'Thinking…');
 
     try {
-      const res  = await fetch('/api/execute', {
+      // Phase 1 — AI reply (shows in chat immediately after generation)
+      const genRes = await fetch('/api/generate', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt:  text,
           model:   this.activeModel,
-          enhance: this.enhanced,
           history: this.aiHistory.slice(-MAX_HIST_TURN),
         }),
       });
-      const data = await res.json();
+      const gen = await genRes.json();
       typingEl.remove();
 
-      if (!res.ok || !data.success) throw new Error(data.error || 'HTTP ' + res.status);
+      if (!genRes.ok || !gen.success) throw new Error(gen.error || 'HTTP ' + genRes.status);
 
-      const a   = data.analysis || {};
-      const ok  = (data.results || []).filter(r => r.success).length;
-      const tot = (data.results || []).length;
-      const ct  = a.commandCount || tot;
+      const chatText    = gen.message || 'Done.';
+      const commands    = gen.commands || [];
+      const hasCommands = commands.length > 0;
+      let resultMeta    = null;
 
-      // Summary text
-      const summary =
-        `Applied ${ct} command${ct !== 1 ? 's' : ''} · ${a.executionTime || '?'}\n` +
-        `${(a.types || []).join(', ')}`;
+      // Phase 2 — apply to Studio (batched for speed)
+      if (hasCommands) {
+        this._setLoading(true, `Building in Studio (${commands.length} steps)…`);
+        const execRes = await fetch('/api/apply', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ commands, enhance: this.enhanced }),
+        });
+        const exec = await execRes.json();
+        if (!execRes.ok) throw new Error(exec.error || 'Studio execution failed');
 
-      const msgObj = this._pushMsg('ai', summary, 'success', {
-        ok, tot, ct,
-        complexity: a.complexity,
-        hasScripts: a.hasScripts,
-        model: data.model || this.activeModel,
-      });
+        const ok  = (exec.results || []).filter(r => r.success).length;
+        const tot = (exec.results || []).length;
+        const ct  = gen.analysis?.commandCount || commands.length;
+        resultMeta = {
+          ok, tot, ct,
+          complexity: gen.analysis?.complexity,
+          hasScripts: gen.analysis?.hasScripts,
+          model: gen.model || this.activeModel,
+          execTime: exec.analysis?.executionTime,
+        };
+      }
 
-      // Update AI context history
+      this._pushMsg('ai', chatText, hasCommands ? 'success' : '', resultMeta);
+
       this.aiHistory.push({ role: 'user', content: text });
-      this.aiHistory.push({ role: 'assistant', content: '[' + (a.types || []).join(',') + ']' });
+      this.aiHistory.push({ role: 'assistant', content: chatText });
       if (this.aiHistory.length > MAX_HIST_TURN * 2) this.aiHistory = this.aiHistory.slice(-MAX_HIST_TURN * 2);
 
-      SessionStore.update(this.session.id, this.messages, data.model);
-      this._toast('✓ ' + ct + ' command' + (ct !== 1 ? 's' : '') + ' applied', 'success');
+      SessionStore.update(this.session.id, this.messages, gen.model);
+
+      if (hasCommands && resultMeta) {
+        const toastType = resultMeta.ok === resultMeta.tot ? 'success' : 'error';
+        this._toast(`${resultMeta.ok}/${resultMeta.tot} applied · ${resultMeta.execTime || '?'}`, toastType);
+      }
 
     } catch (err) {
       typingEl.remove();
@@ -286,10 +302,11 @@ class App {
     if (msg.result) {
       const pills = document.createElement('div');
       pills.className = 'result-stats';
-      const { ok, tot, ct, complexity, hasScripts } = msg.result;
+      const { ok, tot, ct, complexity, hasScripts, execTime } = msg.result;
       pills.innerHTML =
-        `<span class="rs-pill green">✓ ${ok}/${tot} ok</span>` +
-        `<span class="rs-pill blue">${ct} cmd${ct !== 1 ? 's' : ''}</span>` +
+        `<span class="rs-pill green">✓ ${ok}/${tot} in Studio</span>` +
+        `<span class="rs-pill blue">${ct} step${ct !== 1 ? 's' : ''}</span>` +
+        (execTime ? `<span class="rs-pill">${execTime}</span>` : '') +
         (complexity ? `<span class="rs-pill">${complexity}</span>` : '') +
         (hasScripts ? `<span class="rs-pill blue">scripts</span>` : '');
       body.appendChild(pills);
@@ -573,18 +590,14 @@ class App {
       const ping = this.$('status-ping');
 
       if (conn) {
-        chip.className = 'online';
-        // chip doesn't have id=status-chip in new markup — apply to parent
-        chip.id = 'status-chip';
-        this.$('status-chip').classList.add('online');
-        dot.style.background = '';
+        chip.classList.add('online');
         lbl.textContent = 'Plugin Online';
         if (conn.lastUpdate) {
           const ms = Date.now() - new Date(conn.lastUpdate).getTime();
-          ping.textContent = ms < 5000 ? ms + 'ms' : '';
+          ping.textContent = ms < 15000 ? ms + 'ms' : '';
         }
       } else {
-        this.$('status-chip').classList.remove('online');
+        chip.classList.remove('online');
         lbl.textContent = 'Plugin Offline';
         ping.textContent = '';
       }

@@ -31,6 +31,26 @@ const gameAntivirus = new GameAntivirus();
 const autoMigrator = new AutoMigrator();
 const autoUpdater = new AutoUpdater();
 
+// Lightweight game context — skip slow Studio round-trips unless debugging/fixing
+async function resolveGameContext(prompt) {
+  const cached = wsManager.getLastKnownState();
+  const needsLive = /\b(current|existing|fix|update|modify|edit|change|debug|broken|not working|what's in|show me)\b/i.test(prompt);
+
+  if (!needsLive) {
+    return cached && Object.keys(cached).length ? { lastKnownState: cached } : null;
+  }
+
+  const conn = commandEngine.getActiveConnection();
+  if (!conn) return cached ? { lastKnownState: cached } : null;
+
+  try {
+    const gameInfo = await commandEngine.executeCommand({ action: 'GetGameInfo', data: {} });
+    return { gameInfo, lastKnownState: cached };
+  } catch (_) {
+    return cached ? { lastKnownState: cached } : null;
+  }
+}
+
 // ── Plugin HTTP transport endpoints (Roblox can't use WebSockets) ──────────
 app.get('/plugin/poll', (req, res) => wsManager.pluginPoll(req, res));
 app.post('/plugin',     (req, res) => wsManager.pluginReceive(req, res));
@@ -46,7 +66,66 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Execute with AI
+// Generate AI plan (chat + commands) — no Studio execution
+app.post('/api/generate', async (req, res) => {
+  try {
+    const { prompt, model, history } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Prompt required' });
+
+    const gameContext = await resolveGameContext(prompt);
+    const generation = await modelRouter.generateCommands(prompt, { model, gameContext, history: history || [] });
+
+    if (!generation.commands || !Array.isArray(generation.commands)) {
+      throw new Error('Invalid response from AI model - no commands generated');
+    }
+
+    if (generation.commands.length > 0) {
+      Protocol.validateCommandBatch(generation.commands);
+    }
+
+    res.json({
+      success:  true,
+      message:  generation.message || '',
+      commands: generation.commands,
+      model:    generation.model,
+      analysis: generation.analysis,
+    });
+  } catch (error) {
+    errorTracker.logError(error, { endpoint: '/api/generate', type: 'generation' });
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// Apply commands to Studio only
+app.post('/api/apply', async (req, res) => {
+  try {
+    const { commands, enhance } = req.body;
+    if (!commands || !Array.isArray(commands) || commands.length === 0) {
+      return res.status(400).json({ error: 'Commands array required' });
+    }
+
+    Protocol.validateCommandBatch(commands);
+    const startTime = Date.now();
+    const execution = await smartExecutor.executeWithAnalysis(commands, {
+      skipEnhancements: !enhance,
+      includeExplorer: false,
+    });
+
+    res.json({
+      success: execution.success,
+      results: execution.results,
+      analysis: {
+        commandCount: commands.length,
+        executionTime: (Date.now() - startTime) + 'ms',
+      },
+    });
+  } catch (error) {
+    errorTracker.logError(error, { endpoint: '/api/apply', type: 'execution' });
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// Execute with AI (generate + apply in one call)
 app.post('/api/execute', async (req, res) => {
   try {
     const { prompt, model, enhance, history } = req.body;
@@ -55,65 +134,51 @@ app.post('/api/execute', async (req, res) => {
     }
 
     const startTime = Date.now();
-
-    // Snapshot game state to give AI context about what already exists
-    let gameContext = null;
-    try {
-      const conn = commandEngine.getActiveConnection();
-      if (conn) {
-        const [gameInfo, lighting] = await Promise.allSettled([
-          commandEngine.executeCommand({ action: 'GetGameInfo', data: {} }),
-          commandEngine.executeCommand({ action: 'GetLighting', data: {} }),
-        ]);
-        gameContext = {
-          gameInfo: gameInfo.status === 'fulfilled' ? gameInfo.value : null,
-          lighting: lighting.status === 'fulfilled' ? lighting.value : null,
-          lastKnownState: wsManager.getLastKnownState(),
-        };
-      }
-    } catch (_) {}
-
-    // Generate commands
+    const gameContext = await resolveGameContext(prompt);
     const generation = await modelRouter.generateCommands(prompt, { model, gameContext, history: history || [] });
 
     if (!generation.commands || !Array.isArray(generation.commands)) {
       throw new Error('Invalid response from AI model - no commands generated');
     }
 
-    Protocol.validateCommandBatch(generation.commands);
+    if (generation.commands.length > 0) {
+      Protocol.validateCommandBatch(generation.commands);
+    }
 
-    // Smart execution
-    const execution = await smartExecutor.executeWithAnalysis(generation.commands, {
-      skipEnhancements: !enhance,
-      includeExplorer: false
-    });
+    let execution = { success: true, results: [] };
+    if (generation.commands.length > 0) {
+      execution = await smartExecutor.executeWithAnalysis(generation.commands, {
+        skipEnhancements: !enhance,
+        includeExplorer: false,
+      });
+    }
 
     const duration = Date.now() - startTime;
 
-    // Auto-migrate any state changes
-    if (execution.success) {
+    if (execution.success && generation.commands.length > 0) {
       autoMigrator.migrateGameState({
         commands: generation.commands.length,
         executedAt: new Date().toISOString(),
-        model: generation.model
+        model: generation.model,
       });
     }
 
     res.json({
       success: execution.success,
+      message: generation.message || '',
       model: generation.model,
       commands: generation.commands,
       results: execution.results,
       analysis: {
         ...generation.analysis,
-        executionTime: duration + 'ms'
-      }
+        executionTime: duration + 'ms',
+      },
     });
   } catch (error) {
     errorTracker.logError(error, { endpoint: '/api/execute', type: 'execution' });
     res.status(500).json({
       error: error.message,
-      success: false
+      success: false,
     });
   }
 });
@@ -285,7 +350,7 @@ app.get('/api/status', (req, res) => {
   res.json({
     connections: wsManager.getAllConnections().map(conn => ({
       id: conn.id,
-      connected: conn.readyState === 1,
+      connected: conn.connected ?? conn.ready ?? conn.readyState === 1,
       lastUpdate: conn.lastUpdate
     }))
   });

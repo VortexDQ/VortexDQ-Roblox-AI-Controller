@@ -1,7 +1,8 @@
 {
   "version": "2.0.0",
   "releaseDate": "2024-06-26T00:00:00.000Z",
-  "lastUpdateCheck": null,
+  "lastUpdateCheck": "2026-06-26T21:16:15.205Z",
   "updateAvailable": false,
-  "latestVersion": null
+  "latestVersion": null,
+  "checkStatus": "no-releases"
 }
