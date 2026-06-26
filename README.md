@@ -1,4 +1,4 @@
-# VortexDQ AI Controller v2.0 - Professional AI Game Builder
+# VortexDQ AI Controller Professional AI Game Builder
 
 **The fastest, smartest way to build games in Roblox Studio using AI.**
 
