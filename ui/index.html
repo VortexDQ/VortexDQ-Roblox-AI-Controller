@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VortexDQ AI Controller</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">VortexDQ</h1>
+                <p class="tagline">AI Game Builder</p>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-tab="chat">
+                    <span class="icon">💬</span>
+                    <span>Chat</span>
+                </button>
+                <button class="nav-item" data-tab="models">
+                    <span class="icon">🤖</span>
+                    <span>Models</span>
+                </button>
+                <button class="nav-item" data-tab="errors">
+                    <span class="icon">⚠️</span>
+                    <span>Errors</span>
+                </button>
+                <button class="nav-item" data-tab="stats">
+                    <span class="icon">📊</span>
+                    <span>Stats</span>
+                </button>
+                <button class="nav-item" data-tab="plugins">
+                    <span class="icon">🔌</span>
+                    <span>Plugin</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="btn-secondary" id="clearChat">
+                    <span class="icon">🗑️</span> Clear Chat
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Chat Tab -->
+            <div class="tab-content active" id="chat-tab">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages"></div>
+
+                    <div class="chat-input-wrapper">
+                        <div class="chat-controls">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="enhanceCheckbox" checked>
+                                <span>Enhance Output</span>
+                            </label>
+                            <span class="model-badge" id="modelBadge">claude</span>
+                        </div>
+
+                        <form id="chatForm" class="chat-form">
+                            <div class="input-group">
+                                <textarea
+                                    id="userInput"
+                                    placeholder="Describe your game creation... (e.g., 'build an obstacle course with 10 platforms and a finish line')"
+                                    rows="3"
+                                ></textarea>
+                                <button type="submit" class="btn-send" id="sendBtn">
+                                    <span>Send</span>
+                                    <span class="icon">➜</span>
+                                </button>
+                            </div>
+                        </form>
+
+                        <div class="help-text">
+                            💡 Tip: Be specific! Describe what you want: colors, sizes, positions, interactions
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Models Tab -->
+            <div class="tab-content" id="models-tab">
+                <div class="models-container">
+                    <h2>AI Models</h2>
+                    <p class="description">Select an AI model to power your creations. Each has different speeds and capabilities.</p>
+
+                    <div class="models-grid" id="modelsGrid">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="model-info">
+                        <h3>Model Information</h3>
+                        <table class="info-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Speed</th>
+                                    <th>Quality</th>
+                                    <th>Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modelTable">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Errors Tab -->
+            <div class="tab-content" id="errors-tab">
+                <div class="errors-container">
+                    <h2>Error Tracking & Analytics</h2>
+
+                    <div class="error-stats">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalErrors">0</div>
+                            <div class="stat-label">Total Errors</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="fixedErrors">0</div>
+                            <div class="stat-label">Fixed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="unfixedErrors">0</div>
+                            <div class="stat-label">Unfixed</div>
+                        </div>
+                    </div>
+
+                    <div class="errors-severity">
+                        <h3>By Severity</h3>
+                        <div class="severity-bars">
+                            <div class="severity-bar">
+                                <span class="severity-critical"></span>
+                                <span>Critical: <span id="severityCritical">0</span></span>
+                            </div>
+                            <div class="severity-bar">
+                                <span class="severity-high"></span>
+                                <span>High: <span id="severityHigh">0</span></span>
+                            </div>
+                            <div class="severity-bar">
+                                <span class="severity-medium"></span>
+                                <span>Medium: <span id="severityMedium">0</span></span>
+                            </div>
+                            <div class="severity-bar">
+                                <span class="severity-low"></span>
+                                <span>Low: <span id="severityLow">0</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="errors-common">
+                        <h3>Most Common Errors</h3>
+                        <div id="commonErrors" class="error-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <button class="btn-secondary" id="exportErrors">📥 Export Errors</button>
+                </div>
+            </div>
+
+            <!-- Stats Tab -->
+            <div class="tab-content" id="stats-tab">
+                <div class="stats-container">
+                    <h2>Performance Statistics</h2>
+
+                    <div class="stats-grid">
+                        <div class="stat-card large">
+                            <div class="stat-label">Total Executions</div>
+                            <div class="stat-value" id="totalExecutions">0</div>
+                        </div>
+                        <div class="stat-card large">
+                            <div class="stat-label">Success Rate</div>
+                            <div class="stat-value" id="successRate">0%</div>
+                        </div>
+                        <div class="stat-card large">
+                            <div class="stat-label">Avg Commands/Execution</div>
+                            <div class="stat-value" id="avgCommands">0</div>
+                        </div>
+                        <div class="stat-card large">
+                            <div class="stat-label">Active Connections</div>
+                            <div class="stat-value" id="activeConnections">0</div>
+                        </div>
+                    </div>
+
+                    <div class="recent-executions">
+                        <h3>Recent Executions</h3>
+                        <div id="recentExecList" class="execution-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plugin Tab -->
+            <div class="tab-content" id="plugins-tab">
+                <div class="plugins-container">
+                    <h2>Plugin Status</h2>
+
+                    <div class="plugin-status">
+                        <div class="status-indicator" id="pluginStatus">
+                            <span class="status-dot disconnected"></span>
+                            <span class="status-text">Disconnected</span>
+                        </div>
+                        <p class="status-description" id="statusDescription">
+                            Plugin not detected. Make sure Roblox Studio is running and the plugin is installed.
+                        </p>
+                    </div>
+
+                    <div class="installation-guide">
+                        <h3>📦 Installation Guide</h3>
+                        <ol>
+                            <li>Copy these files to your Roblox Plugins folder:
+                                <ul>
+                                    <li><code>plugin/Main.lua</code></li>
+                                    <li><code>plugin/WebSocketClient.lua</code></li>
+                                    <li><code>plugin/Controller.lua</code></li>
+                                    <li><code>plugin/InstanceManager.lua</code></li>
+                                </ul>
+                            </li>
+                            <li>Find your Roblox plugins folder:
+                                <ul>
+                                    <li><strong>Windows:</strong> <code>%APPDATA%\Roblox\Plugins\</code></li>
+                                    <li><strong>Mac:</strong> <code>~/Library/Application Support/Roblox/Plugins/</code></li>
+                                </ul>
+                            </li>
+                            <li>Restart Roblox Studio</li>
+                            <li>Open any place and click <strong>Plugins → VortexDQ AI</strong></li>
+                        </ol>
+                    </div>
+
+                    <div class="connections-list">
+                        <h3>Connected Plugins</h3>
+                        <div id="connectionsList" class="connections">
+                            <p class="no-connections">No connections yet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Loading Spinner -->
+    <div id="loadingSpinner" class="loading-spinner">
+        <div class="spinner"></div>
+        <p>Processing...</p>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
