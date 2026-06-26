@@ -49,7 +49,7 @@ app.get('/api/health', (req, res) => {
 // Execute with AI
 app.post('/api/execute', async (req, res) => {
   try {
-    const { prompt, model, enhance } = req.body;
+    const { prompt, model, enhance, history } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt required' });
     }
@@ -74,7 +74,7 @@ app.post('/api/execute', async (req, res) => {
     } catch (_) {}
 
     // Generate commands
-    const generation = await modelRouter.generateCommands(prompt, { model, gameContext });
+    const generation = await modelRouter.generateCommands(prompt, { model, gameContext, history: history || [] });
 
     if (!generation.commands || !Array.isArray(generation.commands)) {
       throw new Error('Invalid response from AI model - no commands generated');
