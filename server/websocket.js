@@ -1,277 +1,210 @@
-const WebSocket = require('ws');
 const { EventEmitter } = require('events');
-const Protocol = require('./protocol');
+
+// HTTP-polling based manager for the Roblox plugin.
+// The plugin cannot use WebSockets (Roblox HttpService limitation),
+// so it polls GET /plugin/poll to receive commands and posts results
+// to POST /plugin.  The browser UI still connects via ws:// for live updates.
 
 class WebSocketManager extends EventEmitter {
   constructor(httpServer) {
     super();
-    this.httpServer = httpServer;
-    this.wss = null;
-    this.connections = new Map();
+    this.httpServer     = httpServer;
+    this.wss            = null;          // browser WebSocket server (optional)
+    this.connections    = new Map();     // browser ws connections
     this.lastKnownState = {};
-    this.messageQueue = [];
-    this.maxQueueSize = 1000;
+
+    // HTTP-polling plugin state
+    this._pluginConnected  = false;
+    this._pluginLastSeen   = 0;
+    this._pluginId         = null;
+    this._outboundQueue    = [];         // commands waiting for the plugin to poll
+    this._maxQueue         = 256;
+    this._resultListeners  = new Map();  // commandId -> { resolve, reject, timer }
+
+    // Heartbeat: if plugin hasn't polled in 10s, mark disconnected
+    setInterval(() => {
+      if (this._pluginConnected && Date.now() - this._pluginLastSeen > 10000) {
+        this._pluginConnected = false;
+        this._pluginId        = null;
+        console.log('[WS] Plugin connection timed out');
+        this.emit('disconnected', 'plugin');
+      }
+    }, 3000);
   }
 
   initialize() {
-    this.wss = new WebSocket.Server({
-      server: this.httpServer,
-      perMessageDeflate: false,
-      clientTracking: true
-    });
-
-    this.wss.on('connection', (ws, req) => {
-      const connId = this.generateConnectionId();
-      ws.id = connId;
-      ws.readyState = 1; // Open
-      ws.lastUpdate = new Date();
-      ws.isAlive = true;
-
-      this.connections.set(connId, ws);
-      console.log(`[WS] Plugin connected: ${connId}`);
-
-      ws.on('message', (data) => {
-        this.handleMessage(ws, data);
-      });
-
-      ws.on('close', () => {
-        this.connections.delete(connId);
-        console.log(`[WS] Plugin disconnected: ${connId}`);
-        this.emit('disconnected', connId);
-      });
-
-      ws.on('error', (error) => {
-        console.error(`[WS] Connection error [${connId}]:`, error.message);
-      });
-
-      ws.on('pong', () => {
-        ws.isAlive = true;
-      });
-
-      this.emit('connected', connId);
-
-      // Send welcome message
-      this.sendToConnection(connId, {
-        type: 'system',
-        action: 'connected',
-        id: connId,
-        timestamp: new Date().toISOString()
-      });
-    });
-
-    // Heartbeat
-    const heartbeatInterval = setInterval(() => {
-      this.wss.clients.forEach((ws) => {
-        if (ws.isAlive === false) {
-          return ws.terminate();
-        }
-        ws.isAlive = false;
-        ws.ping();
-      });
-    }, 30000);
-
-    this.wss.on('close', () => {
-      clearInterval(heartbeatInterval);
-    });
-  }
-
-  handleMessage(ws, data) {
+    // Optionally bring up a browser-facing WebSocket server
     try {
-      const message = JSON.parse(data.toString());
-      ws.lastUpdate = new Date();
+      const WebSocket = require('ws');
+      this.wss = new WebSocket.Server({ server: this.httpServer, perMessageDeflate: false });
 
-      if (!message.type) {
-        this.sendError(ws, 'Missing message type');
-        return;
-      }
+      this.wss.on('connection', (ws, req) => {
+        const id = this.generateConnectionId();
+        ws.id = id;
+        ws.lastUpdate = new Date();
+        ws.isAlive    = true;
+        this.connections.set(id, ws);
+        console.log(`[WS] Browser connected: ${id}`);
 
-      switch (message.type) {
-        case 'result':
-          this.handleCommandResult(ws, message);
-          break;
-        case 'state':
-          this.handleStateUpdate(ws, message);
-          break;
-        case 'error':
-          console.error(`[WS] Plugin error [${ws.id}]:`, message);
-          break;
-        default:
-          this.sendError(ws, `Unknown message type: ${message.type}`);
-      }
-    } catch (error) {
-      console.error('[WS] Message parse error:', error.message);
-      this.sendError(ws, 'Invalid JSON');
+        ws.on('message', d => this._handleBrowserMessage(ws, d));
+        ws.on('close',   () => { this.connections.delete(id); });
+        ws.on('pong',    () => { ws.isAlive = true; });
+      });
+
+      const hb = setInterval(() => {
+        this.wss.clients.forEach(ws => {
+          if (!ws.isAlive) return ws.terminate();
+          ws.isAlive = false;
+          ws.ping();
+        });
+      }, 30000);
+      this.wss.on('close', () => clearInterval(hb));
+    } catch (_) {
+      // ws package missing — browser UI won't work but plugin will
     }
   }
 
-  handleCommandResult(ws, message) {
-    const { id, success, result, error, state } = message;
+  // ── Plugin HTTP interface ──────────────────────────────────────────────
 
-    if (state) {
-      this.lastKnownState = { ...this.lastKnownState, ...state };
+  // Called by Express route: GET /plugin/poll
+  // Returns next queued command for the plugin, or empty object if nothing pending.
+  pluginPoll(req, res) {
+    this._pluginLastSeen  = Date.now();
+    this._pluginConnected = true;
+
+    // Assign a stable id on first poll
+    if (!this._pluginId) {
+      this._pluginId = this.generateConnectionId();
+      console.log(`[WS] Plugin connected via HTTP polling: ${this._pluginId}`);
+      this.emit('connected', this._pluginId);
     }
 
-    this.emit('result', {
-      connectionId: ws.id,
-      commandId: id,
-      success,
-      result,
-      error
-    });
-
-    this.queueMessage({
-      type: 'result',
-      connectionId: ws.id,
-      commandId: id,
-      success,
-      result,
-      error,
-      timestamp: new Date().toISOString()
-    });
+    const cmd = this._outboundQueue.shift();
+    if (cmd) {
+      res.json(cmd);
+    } else {
+      res.json({});   // nothing to do
+    }
   }
 
-  handleStateUpdate(ws, message) {
-    const { state, workspace, selected } = message;
+  // Called by Express route: POST /plugin
+  // Plugin posts results, state updates, etc. here.
+  pluginReceive(req, res) {
+    this._pluginLastSeen  = Date.now();
+    this._pluginConnected = true;
 
-    this.lastKnownState = {
-      ...this.lastKnownState,
-      ...state,
-      workspace,
-      selected,
-      lastUpdate: new Date().toISOString()
-    };
+    const message = req.body;
+    if (!message || !message.type) {
+      return res.json({ ok: false, error: 'missing type' });
+    }
 
-    this.emit('stateUpdate', {
-      connectionId: ws.id,
-      state: this.lastKnownState
-    });
+    try {
+      this._handlePluginMessage(message);
+    } catch (e) {
+      console.error('[WS] pluginReceive error:', e.message);
+    }
+
+    res.json({ ok: true });
   }
+
+  _handlePluginMessage(message) {
+    switch (message.type) {
+      case 'result': {
+        const { id, success, result, error, state } = message;
+        if (state) this.lastKnownState = { ...this.lastKnownState, ...state };
+
+        // Resolve the pending promise for this command
+        const listener = this._resultListeners.get(id);
+        if (listener) {
+          clearTimeout(listener.timer);
+          this._resultListeners.delete(id);
+          if (success) listener.resolve(result);
+          else         listener.reject(new Error(error || 'Command failed'));
+        }
+
+        // Also emit for any legacy event listeners
+        this.emit('result', { commandId: id, success, result, error });
+        break;
+      }
+      case 'state': {
+        const { state } = message;
+        if (state) this.lastKnownState = { ...this.lastKnownState, ...state };
+        this.emit('stateUpdate', { state: this.lastKnownState });
+        break;
+      }
+      default:
+        console.log('[WS] Unknown plugin message type:', message.type);
+    }
+  }
+
+  // ── Command sending ────────────────────────────────────────────────────
 
   sendCommand(connectionId, command) {
-    if (!Protocol.validateCommand(command)) {
-      throw new Error('Invalid command format');
-    }
-
-    const message = {
-      type: 'command',
-      id: command.id || this.generateCommandId(),
-      action: command.action,
-      data: command.data,
-      timestamp: new Date().toISOString()
+    const msg = {
+      type:      'command',
+      id:        command.id || this.generateCommandId(),
+      action:    command.action,
+      data:      command.data || {},
+      timestamp: Date.now(),
     };
 
-    return this.sendToConnection(connectionId, message);
+    if (this._outboundQueue.length >= this._maxQueue) {
+      console.warn('[WS] Outbound queue full — dropping oldest command');
+      this._outboundQueue.shift();
+    }
+
+    this._outboundQueue.push(msg);
+    return true;   // always succeeds (queued)
   }
 
-  broadcastCommand(command) {
-    if (!Protocol.validateCommand(command)) {
-      throw new Error('Invalid command format');
-    }
+  // Promise-based: resolves when the plugin returns a result for this command
+  sendCommandAndWait(command, timeoutMs = 8000) {
+    return new Promise((resolve, reject) => {
+      const id  = command.id || this.generateCommandId();
+      const msg = { ...command, id };
 
-    const message = {
-      type: 'command',
-      id: command.id || this.generateCommandId(),
-      action: command.action,
-      data: command.data,
-      timestamp: new Date().toISOString()
-    };
+      const timer = setTimeout(() => {
+        this._resultListeners.delete(id);
+        this._outboundQueue  = this._outboundQueue.filter(c => c.id !== id);
+        reject(new Error(`Timeout waiting for ${command.action} (${id})`));
+      }, timeoutMs);
 
-    let sent = 0;
-    this.connections.forEach((ws, connId) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify(message));
-          sent++;
-        } catch (error) {
-          console.error(`[WS] Failed to send to ${connId}:`, error.message);
-        }
-      }
+      this._resultListeners.set(id, { resolve, reject, timer });
+      this.sendCommand(null, msg);
     });
-
-    return sent;
   }
 
-  sendToConnection(connectionId, message) {
-    const ws = this.connections.get(connectionId);
-    if (!ws) {
-      console.error(`[WS] Connection not found: ${connectionId}`);
-      return false;
-    }
+  // ── Helpers ────────────────────────────────────────────────────────────
 
-    if (ws.readyState !== WebSocket.OPEN) {
-      console.warn(`[WS] Connection not open: ${connectionId}`);
-      return false;
-    }
-
+  _handleBrowserMessage(ws, data) {
     try {
-      ws.send(JSON.stringify(message));
-      return true;
-    } catch (error) {
-      console.error(`[WS] Send error [${connectionId}]:`, error.message);
-      return false;
-    }
+      const msg = JSON.parse(data.toString());
+      ws.lastUpdate = new Date();
+      // Forward browser requests to plugin if needed
+      if (msg.type === 'command') {
+        this.sendCommand(null, msg);
+      }
+    } catch (_) {}
   }
 
-  sendError(ws, message) {
-    try {
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: message,
-        timestamp: new Date().toISOString()
-      }));
-    } catch (error) {
-      console.error('[WS] Error send failed:', error.message);
-    }
+  broadcastToBrowser(message) {
+    const json = JSON.stringify(message);
+    this.connections.forEach(ws => {
+      try { ws.send(json); } catch (_) {}
+    });
   }
 
-  getConnectionCount() {
-    return this.connections.size;
-  }
+  getConnectionCount()  { return this._pluginConnected ? 1 : 0; }
+  isPluginConnected()   { return this._pluginConnected; }
+  getLastKnownState()   { return this.lastKnownState; }
 
   getAllConnections() {
-    return Array.from(this.connections.values()).map(ws => ({
-      id: ws.id,
-      ready: ws.readyState === WebSocket.OPEN,
-      lastUpdate: ws.lastUpdate,
-      isAlive: ws.isAlive
-    }));
+    if (!this._pluginConnected) return [];
+    return [{ id: this._pluginId, ready: true, lastUpdate: new Date(this._pluginLastSeen) }];
   }
 
-  getLastKnownState() {
-    return this.lastKnownState;
-  }
-
-  queueMessage(message) {
-    this.messageQueue.push(message);
-    if (this.messageQueue.length > this.maxQueueSize) {
-      this.messageQueue.shift();
-    }
-  }
-
-  getMessageQueue() {
-    return [...this.messageQueue];
-  }
-
-  generateConnectionId() {
-    return `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  generateCommandId() {
-    return `cmd_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  closeConnection(connectionId) {
-    const ws = this.connections.get(connectionId);
-    if (ws) {
-      ws.close();
-      this.connections.delete(connectionId);
-    }
-  }
-
-  closeAll() {
-    this.connections.forEach(ws => ws.close());
-    this.connections.clear();
-  }
+  generateConnectionId() { return `conn_${Date.now()}_${Math.random().toString(36).slice(2,9)}`; }
+  generateCommandId()    { return `cmd_${Date.now()}_${Math.random().toString(36).slice(2,9)}`; }
 }
 
 module.exports = WebSocketManager;

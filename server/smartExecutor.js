@@ -1,208 +1,107 @@
 const Protocol = require('./protocol');
 
+// Actions that create something — must run before SetProperty on their output
+const CREATE_ACTIONS = new Set([
+  'CreateInstance','CreatePart','CreateFolder','CreateScript','CreateUI',
+]);
+
 class SmartExecutor {
   constructor(commandEngine, errorTracker) {
-    this.commandEngine = commandEngine;
-    this.errorTracker = errorTracker;
+    this.commandEngine    = commandEngine;
+    this.errorTracker     = errorTracker;
     this.executionHistory = [];
-    this.maxHistory = 1000;
+    this.maxHistory       = 500;
   }
 
   async executeWithAnalysis(commands, context = {}) {
-    // Analyze commands before execution
-    const analysis = this._analyzeCommands(commands);
+    const start    = Date.now();
+    const prepared = this._prepare(commands, context);
 
-    // Optimize commands
-    const optimized = this._optimizeCommands(commands);
+    // Execute — no artificial delays between batches
+    const results  = await this._execute(prepared);
 
-    // Add extra touches/improvements
-    const enhanced = this._enhanceCommands(optimized, context);
-
-    // Execute
-    const results = await this._executeSmartly(enhanced, context);
-
-    // Learn from results
-    this._recordExecution(enhanced, results, analysis);
+    const duration = Date.now() - start;
+    this._record(prepared, results, duration);
 
     return {
-      success: results.every(r => r.success),
+      success:      results.every(r => r.success),
       results,
-      analysis,
-      improvements: enhanced.length > commands.length
+      duration:     `${duration}ms`,
+      commandCount: prepared.length,
     };
   }
 
-  _analyzeCommands(commands) {
-    return {
-      count: commands.length,
-      types: [...new Set(commands.map(c => c.action))],
-      complexity: this._calculateComplexity(commands),
-      hasUI: commands.some(c => c.action === 'CreateUI'),
-      hasScripts: commands.some(c => c.action === 'CreateScript'),
-      estimatedTime: Math.ceil(commands.length * 50) + 'ms'
-    };
-  }
-
-  _calculateComplexity(commands) {
-    if (commands.length > 20) return 'very-high';
-    if (commands.length > 10) return 'high';
-    if (commands.length > 5) return 'medium';
-    return 'low';
-  }
-
-  _optimizeCommands(commands) {
-    // Remove duplicates
+  // Deduplicate, sort creates-first, apply quality defaults
+  _prepare(commands, context) {
+    // Deduplicate by JSON fingerprint
     const seen = new Set();
     const unique = commands.filter(cmd => {
-      const key = JSON.stringify(cmd);
+      const key = `${cmd.action}:${JSON.stringify(cmd.data)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    // Reorder: Create before SetProperty
-    return unique.sort((a, b) => {
-      const createActions = ['CreateInstance', 'CreatePart', 'CreateFolder', 'CreateScript', 'CreateUI'];
-      const aIsCreate = createActions.includes(a.action);
-      const bIsCreate = createActions.includes(b.action);
-
-      if (aIsCreate && !bIsCreate) return -1;
-      if (!aIsCreate && bIsCreate) return 1;
-      return 0;
+    // Ensure creates come before mutations
+    unique.sort((a, b) => {
+      const ac = CREATE_ACTIONS.has(a.action) ? 0 : 1;
+      const bc = CREATE_ACTIONS.has(b.action) ? 0 : 1;
+      return ac - bc;
     });
-  }
 
-  _enhanceCommands(commands, context) {
-    const enhanced = [...commands];
-
-    // If creating parts, add visual improvements
-    const hasParts = commands.some(c => c.action === 'CreatePart');
-    if (hasParts && !context.skipEnhancements) {
-      // Auto-anchor parts for stability
-      commands.forEach(cmd => {
+    // Quality defaults — anchor parts, give scripts names
+    if (!context.skipEnhancements) {
+      unique.forEach(cmd => {
         if (cmd.action === 'CreatePart') {
-          if (!cmd.data.properties) {
-            cmd.data.properties = {};
-          }
-          if (cmd.data.properties.Anchored === undefined) {
-            cmd.data.properties.Anchored = true;
-          }
+          cmd.data.properties = cmd.data.properties || {};
+          if (cmd.data.properties.Anchored === undefined) cmd.data.properties.Anchored = true;
+          if (cmd.data.properties.CastShadow === undefined) cmd.data.properties.CastShadow = true;
+        }
+        if (cmd.action === 'CreateScript' && !cmd.data.name) {
+          cmd.data.name = 'Script';
         }
       });
     }
 
-    // If creating UI, add default properties
-    const hasUI = commands.some(c => c.action === 'CreateUI');
-    if (hasUI) {
-      commands.forEach(cmd => {
-        if (cmd.action === 'CreateUI') {
-          if (!cmd.data.properties) {
-            cmd.data.properties = {};
-          }
-          // Add default UI properties
-          if (!cmd.data.properties.Size && cmd.data.type === 'ScreenGui') {
-            cmd.data.properties.Size = { X: 300, Y: 400 };
-          }
-          if (!cmd.data.properties.BackgroundColor3) {
-            cmd.data.properties.BackgroundColor3 = [240, 240, 240];
-          }
-        }
-      });
-    }
-
-    // Add exploration command if none exist
-    if (commands.length === 0 || !commands.some(c => c.action === 'GetExplorerTree')) {
-      if (context.includeExplorer) {
-        enhanced.push({
-          action: 'GetExplorerTree',
-          data: {}
-        });
-      }
-    }
-
-    return enhanced;
+    return unique;
   }
 
-  async _executeSmartly(commands, context = {}) {
-    const results = [];
-    const batchSize = 10;
+  async _execute(commands) {
+    // Split into chunks of 50 and fire each chunk's parallel-safe commands concurrently
+    const CHUNK = 50;
+    const all   = [];
 
-    // Execute in batches for stability
-    for (let i = 0; i < commands.length; i += batchSize) {
-      const batch = commands.slice(i, i + batchSize);
-
-      try {
-        const batchResults = await this.commandEngine.executeCommandBatch(batch);
-
-        results.push(...batchResults);
-
-        // Check for errors and attempt fixes
-        for (let j = 0; j < batchResults.length; j++) {
-          if (!batchResults[j].success) {
-            const error = batchResults[j].error;
-            const errorId = this.errorTracker.logError(
-              new Error(error),
-              {
-                action: batch[j].action,
-                command: batch[j]
-              }
-            );
-
-            // Suggest fix
-            const suggestedFix = this.errorTracker.getSuggestedFix(error);
-            console.log(`[SmartExecutor] Error in ${batch[j].action}: ${suggestedFix}`);
-          }
-        }
-
-        // Small delay between batches
-        if (i + batchSize < commands.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      } catch (error) {
-        this.errorTracker.logError(error, {
-          batch: i / batchSize,
-          batchSize
-        });
-
-        results.push({
-          success: false,
-          error: error.message
-        });
-      }
+    for (let i = 0; i < commands.length; i += CHUNK) {
+      const chunk   = commands.slice(i, i + CHUNK);
+      const results = await this.commandEngine.executeCommandBatch(chunk);
+      all.push(...results);
+      // No sleep between chunks — the engine handles ordering
     }
 
-    return results;
+    return all;
   }
 
-  _recordExecution(commands, results, analysis) {
-    const execution = {
-      timestamp: new Date().toISOString(),
+  _record(commands, results, duration) {
+    this.executionHistory.push({
+      ts:           new Date().toISOString(),
       commandCount: commands.length,
-      successCount: results.filter(r => r.success).length,
-      failureCount: results.filter(r => !r.success).length,
-      analysis,
-      duration: 0
-    };
-
-    this.executionHistory.push(execution);
-
-    if (this.executionHistory.length > this.maxHistory) {
-      this.executionHistory.shift();
-    }
+      succeeded:    results.filter(r => r.success).length,
+      failed:       results.filter(r => !r.success).length,
+      duration,
+    });
+    if (this.executionHistory.length > this.maxHistory) this.executionHistory.shift();
   }
 
   getStats() {
-    const total = this.executionHistory.length;
-    const successful = this.executionHistory.filter(e => e.failureCount === 0).length;
-
+    const t = this.executionHistory.length;
+    if (t === 0) return { totalExecutions: 0, successRate: '0%', avgDuration: '0ms' };
+    const ok  = this.executionHistory.filter(e => e.failed === 0).length;
+    const avg = Math.round(this.executionHistory.reduce((s, e) => s + e.duration, 0) / t);
     return {
-      totalExecutions: total,
-      successfulExecutions: successful,
-      successRate: total > 0 ? ((successful / total) * 100).toFixed(2) + '%' : '0%',
-      averageCommandsPerExecution: total > 0
-        ? Math.round(this.executionHistory.reduce((sum, e) => sum + e.commandCount, 0) / total)
-        : 0,
-      recentExecutions: this.executionHistory.slice(-20)
+      totalExecutions:  t,
+      successRate:      `${((ok / t) * 100).toFixed(1)}%`,
+      avgDuration:      `${avg}ms`,
+      recentExecutions: this.executionHistory.slice(-10),
     };
   }
 }

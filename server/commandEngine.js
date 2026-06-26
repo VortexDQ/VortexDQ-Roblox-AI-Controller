@@ -1,172 +1,155 @@
 const Protocol = require('./protocol');
 const { EventEmitter } = require('events');
 
+// Commands that can safely run in parallel (pure reads or independent creates)
+const PARALLEL_SAFE = new Set([
+  'GetExplorerTree','GetGameInfo','GetPlaceInfo','GetLighting',
+  'GetWorkspaceSettings','GetServiceProperties','GetAllScripts',
+  'GetScriptSource','GetAllProperties','GetChildren','GetDescendants',
+  'SearchInstances','GetPlayers','GetTeams','GetTags','GetTagged',
+  'GetAttribute','GetAttributes','GetSelection','GetStudioTheme',
+  'GetHistory','GetStats','Ping','GetProperty',
+]);
+
 class CommandEngine extends EventEmitter {
   constructor(wsManager) {
     super();
-    this.wsManager = wsManager;
-    this.commandQueue = [];
+    this.wsManager     = wsManager;
     this.executingCommands = new Map();
-    this.commandTimeout = 30000;
-    this.maxRetries = 3;
-    this.retryDelay = 1000;
+    this.commandTimeout    = 8000;   // 8s hard cap (was 30s)
+    this.maxRetries        = 2;
+    this.retryDelay        = 400;
   }
 
-  async executeCommand(command, connectionId = null) {
-    try {
-      Protocol.validateCommand(command);
-    } catch (error) {
-      throw new Error(`Invalid command: ${error.message}`);
-    }
+  // Execute a single command and wait for its result
+  executeCommand(command, connectionId = null) {
+    try { Protocol.validateCommand(command); }
+    catch (e) { throw new Error(`Invalid command: ${e.message}`); }
 
-    const commandId = command.id || this.wsManager.generateCommandId();
-    const targetConnection = connectionId || this.getActiveConnection();
+    const id   = command.id || this.wsManager.generateCommandId();
+    const conn = connectionId || this.getActiveConnection();
+    if (!conn) throw new Error('No active plugin connection');
 
-    if (!targetConnection) {
-      throw new Error('No active plugin connection');
-    }
-
-    return this.sendAndWait(targetConnection, {
-      ...command,
-      id: commandId
-    });
+    return this._sendAndWait(conn, { ...command, id });
   }
 
+  // Execute a batch — runs reads in parallel, writes sequentially
   async executeCommandBatch(commands, connectionId = null) {
-    try {
-      Protocol.validateCommandBatch(commands);
-    } catch (error) {
-      throw new Error(`Invalid command batch: ${error.message}`);
-    }
+    try { Protocol.validateCommandBatch(commands); }
+    catch (e) { throw new Error(`Invalid batch: ${e.message}`); }
 
-    const targetConnection = connectionId || this.getActiveConnection();
+    const conn = connectionId || this.getActiveConnection();
+    if (!conn) throw new Error('No active plugin connection');
 
-    if (!targetConnection) {
-      throw new Error('No active plugin connection');
-    }
+    // Partition into parallel-safe reads and sequential writes
+    const reads  = [];
+    const writes = [];
+    commands.forEach(cmd => {
+      if (PARALLEL_SAFE.has(cmd.action)) reads.push(cmd);
+      else writes.push(cmd);
+    });
 
     const results = [];
-    for (const command of commands) {
+
+    // Fire all reads simultaneously
+    if (reads.length > 0) {
+      const readResults = await Promise.allSettled(
+        reads.map(cmd => this._sendAndWait(conn, {
+          ...cmd,
+          id: cmd.id || this.wsManager.generateCommandId()
+        }))
+      );
+      readResults.forEach((r, i) => {
+        results.push({
+          action:  reads[i].action,
+          success: r.status === 'fulfilled',
+          result:  r.status === 'fulfilled' ? r.value : null,
+          error:   r.status === 'rejected'  ? r.reason?.message : null,
+        });
+      });
+    }
+
+    // Fire writes in dependency order (creates before mutates)
+    for (const cmd of writes) {
       try {
-        const result = await this.executeCommand(command, targetConnection);
-        results.push({
-          action: command.action,
-          success: true,
-          result: result
+        const result = await this._sendAndWait(conn, {
+          ...cmd,
+          id: cmd.id || this.wsManager.generateCommandId()
         });
-      } catch (error) {
-        results.push({
-          action: command.action,
-          success: false,
-          error: error.message
-        });
+        results.push({ action: cmd.action, success: true, result });
+      } catch (e) {
+        results.push({ action: cmd.action, success: false, error: e.message });
       }
     }
 
     return results;
   }
 
-  sendAndWait(connectionId, command, retries = 0) {
+  _sendAndWait(connectionId, command, retries = 0) {
     return new Promise((resolve, reject) => {
-      const commandId = command.id || this.wsManager.generateCommandId();
-      const timeout = setTimeout(() => {
-        this.executingCommands.delete(commandId);
+      const id = command.id;
+
+      const timer = setTimeout(() => {
+        this.executingCommands.delete(id);
+        this.wsManager.removeListener('result', handler);
         if (retries < this.maxRetries) {
-          console.log(`[ENGINE] Retrying command ${commandId} (attempt ${retries + 1}/${this.maxRetries})`);
-          setTimeout(() => {
-            this.sendAndWait(connectionId, { ...command, id: commandId }, retries + 1)
-              .then(resolve)
-              .catch(reject);
-          }, this.retryDelay);
+          this._sendAndWait(connectionId, command, retries + 1).then(resolve).catch(reject);
         } else {
-          reject(new Error(`Command timeout after ${this.maxRetries} retries: ${command.action}`));
+          reject(new Error(`Timeout: ${command.action} (${id})`));
         }
       }, this.commandTimeout);
 
-      const handler = (result) => {
-        if (result.commandId === commandId) {
-          clearTimeout(timeout);
-          this.wsManager.removeListener('result', handler);
-          this.executingCommands.delete(commandId);
-
-          if (result.success) {
-            resolve(result.result);
-          } else {
-            reject(new Error(result.error || 'Command execution failed'));
-          }
-        }
+      const handler = (r) => {
+        if (r.commandId !== id) return;
+        clearTimeout(timer);
+        this.wsManager.removeListener('result', handler);
+        this.executingCommands.delete(id);
+        r.success ? resolve(r.result) : reject(new Error(r.error || 'Command failed'));
       };
 
       this.wsManager.on('result', handler);
-      this.executingCommands.set(commandId, {
-        command,
-        connectionId,
-        timeout,
-        handler
-      });
+      this.executingCommands.set(id, { command, connectionId, timer, handler });
 
-      try {
-        const sent = this.wsManager.sendCommand(connectionId, {
-          ...command,
-          id: commandId
-        });
-
-        if (!sent) {
-          clearTimeout(timeout);
-          this.wsManager.removeListener('result', handler);
-          this.executingCommands.delete(commandId);
-          reject(new Error('Failed to send command to plugin'));
-        }
-      } catch (error) {
-        clearTimeout(timeout);
+      const sent = this.wsManager.sendCommand(connectionId, command);
+      if (!sent) {
+        clearTimeout(timer);
         this.wsManager.removeListener('result', handler);
-        this.executingCommands.delete(commandId);
-        reject(error);
+        this.executingCommands.delete(id);
+        reject(new Error('Failed to send command to plugin'));
       }
     });
   }
 
   getActiveConnection() {
-    const connections = this.wsManager.getAllConnections();
-    const active = connections.find(c => c.ready);
+    const active = this.wsManager.getAllConnections().find(c => c.ready);
     return active ? active.id : null;
   }
 
-  cancelCommand(commandId) {
-    const executing = this.executingCommands.get(commandId);
-    if (executing) {
-      clearTimeout(executing.timeout);
-      this.wsManager.removeListener('result', executing.handler);
-      this.executingCommands.delete(commandId);
-      return true;
-    }
-    return false;
+  cancelCommand(id) {
+    const e = this.executingCommands.get(id);
+    if (!e) return false;
+    clearTimeout(e.timer);
+    this.wsManager.removeListener('result', e.handler);
+    this.executingCommands.delete(id);
+    return true;
   }
 
   getExecutingCommands() {
-    return Array.from(this.executingCommands.entries()).map(([id, data]) => ({
-      id,
-      action: data.command.action,
-      connectionId: data.connectionId
+    return Array.from(this.executingCommands.entries()).map(([id, d]) => ({
+      id, action: d.command.action, connectionId: d.connectionId,
     }));
   }
 
   async getExplorerTree() {
-    const connectionId = this.getActiveConnection();
-    if (!connectionId) {
-      throw new Error('No active plugin connection');
-    }
-
-    return this.sendAndWait(connectionId, {
+    const conn = this.getActiveConnection();
+    if (!conn) throw new Error('No active plugin connection');
+    return this._sendAndWait(conn, {
       id: this.wsManager.generateCommandId(),
-      action: 'GetExplorerTree',
-      data: {}
+      action: 'GetExplorerTree', data: {},
     });
   }
 
-  async getCurrentState() {
-    return this.wsManager.getLastKnownState();
-  }
+  getCurrentState() { return this.wsManager.getLastKnownState(); }
 }
 
 module.exports = CommandEngine;

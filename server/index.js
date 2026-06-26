@@ -31,13 +31,18 @@ const gameAntivirus = new GameAntivirus();
 const autoMigrator = new AutoMigrator();
 const autoUpdater = new AutoUpdater();
 
-// Health check
+// ── Plugin HTTP transport endpoints (Roblox can't use WebSockets) ──────────
+app.get('/plugin/poll', (req, res) => wsManager.pluginPoll(req, res));
+app.post('/plugin',     (req, res) => wsManager.pluginReceive(req, res));
+
+// ── Health check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
-    status: 'ok',
+    status:        'ok',
+    pluginOnline:  wsManager.isPluginConnected(),
     wsConnections: wsManager.getConnectionCount(),
-    models: modelRouter.getAvailableModels(),
-    timestamp: new Date().toISOString()
+    models:        modelRouter.getAvailableModels(),
+    timestamp:     new Date().toISOString(),
   });
 });
 
@@ -51,8 +56,25 @@ app.post('/api/execute', async (req, res) => {
 
     const startTime = Date.now();
 
+    // Snapshot game state to give AI context about what already exists
+    let gameContext = null;
+    try {
+      const conn = commandEngine.getActiveConnection();
+      if (conn) {
+        const [gameInfo, lighting] = await Promise.allSettled([
+          commandEngine.executeCommand({ action: 'GetGameInfo', data: {} }),
+          commandEngine.executeCommand({ action: 'GetLighting', data: {} }),
+        ]);
+        gameContext = {
+          gameInfo: gameInfo.status === 'fulfilled' ? gameInfo.value : null,
+          lighting: lighting.status === 'fulfilled' ? lighting.value : null,
+          lastKnownState: wsManager.getLastKnownState(),
+        };
+      }
+    } catch (_) {}
+
     // Generate commands
-    const generation = await modelRouter.generateCommands(prompt, { model });
+    const generation = await modelRouter.generateCommands(prompt, { model, gameContext });
 
     if (!generation.commands || !Array.isArray(generation.commands)) {
       throw new Error('Invalid response from AI model - no commands generated');
