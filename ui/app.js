@@ -101,13 +101,12 @@ class VortexDQUI {
 
       if (data.success) {
         const analysis = data.analysis;
-        const resultText = `✓ Executed ${analysis.commandCount} commands in ${analysis.executionTime}
+        const ok  = data.results.filter(r => r.success).length;
+        const tot = data.results.length;
+        const aiMsg  = data.message || `Applied ${analysis.commandCount} commands.`;
+        const meta   = `✓ ${analysis.commandCount} cmd${analysis.commandCount !== 1 ? 's' : ''} · ${analysis.executionTime} · ${ok}/${tot} ok · ${analysis.complexity}`;
 
-Commands: ${analysis.types.join(', ')}
-Complexity: ${analysis.complexity}
-Success Rate: ${data.results.filter(r => r.success).length}/${data.results.length}`;
-
-        this.addMessage('ai', resultText, 'success');
+        this.addMessage('ai', aiMsg, 'success', meta);
         this.showToast(`Game updated with ${analysis.commandCount} commands`, 'success');
       } else {
         throw new Error(data.error || 'Execution failed');
@@ -198,7 +197,7 @@ ${analysis.examples.map(e => `• "${e}"`).join('\n')}`;
     }
   }
 
-  addMessage(role, content, type = 'normal') {
+  addMessage(role, content, type = 'normal', meta = null) {
     const message = document.createElement('div');
     message.className = `message message-${role}`;
 
@@ -214,10 +213,10 @@ ${analysis.examples.map(e => `• "${e}"`).join('\n')}`;
     text.textContent = content;
     contentDiv.appendChild(text);
 
-    if (role === 'ai' && type === 'success') {
+    if (role === 'ai' && type === 'success' && meta) {
       const analysis = document.createElement('div');
       analysis.className = 'message-analysis';
-      analysis.innerHTML = content.replace(/\n/g, '<br>');
+      analysis.textContent = meta;
       contentDiv.appendChild(analysis);
     }
 
@@ -316,21 +315,21 @@ ${analysis.examples.map(e => `• "${e}"`).join('\n')}`;
 
       document.getElementById('totalExecutions').textContent = data.smartExecutor.totalExecutions;
       document.getElementById('successRate').textContent = data.smartExecutor.successRate;
-      document.getElementById('avgCommands').textContent = data.smartExecutor.averageCommandsPerExecution;
+      document.getElementById('avgCommands').textContent = data.smartExecutor.avgDuration;
       document.getElementById('activeConnections').textContent = data.connections;
 
       const execList = document.getElementById('recentExecList');
       execList.innerHTML = '';
 
-      data.smartExecutor.recentExecutions.slice(-5).forEach(exec => {
+      (data.smartExecutor.recentExecutions || []).slice(-5).forEach(exec => {
         const item = document.createElement('div');
         item.className = 'execution-item';
         item.innerHTML = `
           <div>
             <div>${exec.commandCount} commands</div>
-            <div class="execution-time">${new Date(exec.timestamp).toLocaleTimeString()}</div>
+            <div class="execution-time">${new Date(exec.ts).toLocaleTimeString()}</div>
           </div>
-          <div>${exec.successCount}/${exec.commandCount} success</div>
+          <div>${exec.succeeded}/${exec.commandCount} success</div>
         `;
         execList.appendChild(item);
       });
