@@ -75,6 +75,7 @@ class App {
     this._bindChat();
     this._bindMisc();
     await this._refresh();
+    await this._checkApiKeys();
     this._pollPlugin();
     setInterval(() => this._pollPlugin(), 3000);
     setInterval(() => this._refresh(), 8000);
@@ -94,10 +95,11 @@ class App {
       const match = p.id === 'pane-' + tab;
       p.classList.toggle('active', match);
     });
-    if (tab === 'history') this._renderHistory();
-    if (tab === 'models')  this._loadModels();
-    if (tab === 'stats')   this._loadStats();
-    if (tab === 'errors')  this._loadErrors();
+    if (tab === 'history')  this._renderHistory();
+    if (tab === 'models')   this._loadModels();
+    if (tab === 'stats')    this._loadStats();
+    if (tab === 'errors')   this._loadErrors();
+    if (tab === 'settings') this._loadSettings();
   }
 
   // ─── Chat ───────────────────────────────────────────────────────────────────
@@ -145,8 +147,9 @@ class App {
       SessionStore.clear();
       this._renderHistory();
     });
-    this.$('export-btn').addEventListener('click',       () => this._exportErrors());
-    this.$('refresh-stats-btn').addEventListener('click',() => this._loadStats());
+    this.$('export-btn').addEventListener('click',        () => this._exportErrors());
+    this.$('refresh-stats-btn').addEventListener('click', () => this._loadStats());
+    this.$('save-keys-btn').addEventListener('click',     () => this._saveSettings());
   }
 
   _newChat() {
@@ -605,6 +608,85 @@ class App {
       this.$('status-chip').classList.remove('online');
       this.$('status-text').textContent = 'Server Offline';
     }
+  }
+
+  // ─── Settings ────────────────────────────────────────────────────────────────
+
+  async _loadSettings() {
+    try {
+      const res  = await fetch('/api/config');
+      const cfg  = await res.json();
+      this._applyKeyStatus(cfg);
+    } catch (_) {}
+  }
+
+  _applyKeyStatus(cfg) {
+    const set = (id, statusId, ok) => {
+      const el = this.$(statusId);
+      if (!el) return;
+      el.className = 'key-status ' + (ok ? 'set' : 'unset');
+      el.textContent = ok ? '✓' : '✕';
+      el.title = ok ? 'Configured' : 'Not configured';
+      // If already configured, show placeholder instead of actual key
+      const inp = this.$(id);
+      if (inp && ok && !inp.value) inp.placeholder = '••••••••••••••••••••';
+    };
+    set('key-anthropic', 'ks-anthropic', cfg.anthropic);
+    set('key-gemini',    'ks-gemini',    cfg.gemini);
+    set('key-deepseek',  'ks-deepseek',  cfg.deepseek);
+
+    const anyKey = cfg.anthropic || cfg.gemini || cfg.deepseek;
+    const banner = this.$('no-key-banner');
+    if (banner) banner.classList.toggle('hidden', anyKey);
+
+    // Badge on sidebar nav item
+    const badge = this.$('key-badge');
+    if (badge) badge.classList.toggle('hidden', anyKey);
+  }
+
+  async _saveSettings() {
+    const btn = this.$('save-keys-btn');
+    const anthropicKey = this.$('key-anthropic').value.trim();
+    const geminiKey    = this.$('key-gemini').value.trim();
+    const deepseekKey  = this.$('key-deepseek').value.trim();
+
+    btn.textContent = 'Saving…';
+    btn.disabled    = true;
+
+    try {
+      const res  = await fetch('/api/config', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anthropicKey, geminiKey, deepseekKey }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+
+      // Clear inputs so we don't accidentally re-send
+      this.$('key-anthropic').value = '';
+      this.$('key-gemini').value    = '';
+      this.$('key-deepseek').value  = '';
+
+      await this._loadSettings();
+      await this._refresh();
+      this._toast('API keys saved', 'success');
+    } catch (e) {
+      this._toast(e.message, 'error');
+    } finally {
+      btn.textContent = 'Save Keys';
+      btn.disabled    = false;
+    }
+  }
+
+  async _checkApiKeys() {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      this._applyKeyStatus(cfg);
+      if (!cfg.anthropic && !cfg.gemini && !cfg.deepseek) {
+        this._toast('No API keys set — go to Settings to add one', 'error');
+      }
+    } catch (_) {}
   }
 
   // ─── Initial refresh ──────────────────────────────────────────────────────────

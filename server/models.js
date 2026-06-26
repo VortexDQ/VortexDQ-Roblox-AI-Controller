@@ -202,21 +202,32 @@ Scripts must be COMPLETE and runnable — no placeholders, no "-- TODO", no pseu
 // ─── Model implementations ────────────────────────────────────────────────────
 
 class ClaudeModel {
-  constructor(fast = false) {
-    this.fast = fast;
+  // tier: 'fast' | 'standard' | 'pro'
+  constructor(tier = 'standard') {
+    this.tier = tier;
+    this.fast = tier === 'fast';
   }
 
   async generateCommands(prompt, gameContext = null, history = []) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
-    const isFullGame = /\b(full game|complete game|entire game|whole game|make a game|create a game)\b/i.test(prompt);
-    const isComplex  = /\b(gun|weapon|cuff|arrest|restrain|vehicle|car|bike|door|keycard|datastore|save|leaderboard|combat|system|mechanic|tool|ability|inventory|shop|npc|round|spawn|checkpoint|ui|gui|hud)\b/i.test(prompt);
-    const isScript   = /\b(script|code|lua|function|module|remote|localscript|serverscript|tool script|working|fix|debug)\b/i.test(prompt);
-    const useSonnet  = isFullGame || isComplex || isScript || (this.fast === false);
-    const model      = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
-    const maxTokens  = isFullGame ? 8192 : (isComplex || isScript) ? 8192 : 4096;
-    const system     = (this.fast && !isFullGame && !isComplex && !isScript) ? FAST_SYSTEM : BASE_SYSTEM;
+    const isFullGame = /\b(full game|complete game|entire game|whole game|make a game|create a game|build a game)\b/i.test(prompt);
+    const isComplex  = /\b(gun|weapon|cuff|arrest|restrain|vehicle|car|bike|door|keycard|datastore|save|leaderboard|combat|system|mechanic|tool|ability|inventory|shop|npc|round|spawn|checkpoint|ui|gui|hud|team|admin|ban|kick|tween|animate|particle|effect|badge|gamepass|product|proximity|prompt|click detector|billboard|surface)\b/i.test(prompt);
+    const isScript   = /\b(script|code|lua|function|module|remote|localscript|serverscript|modulescript|tool script|working|fix|debug|write|implement|logic|handler|controller|manager|service|system)\b/i.test(prompt);
+
+    let model, maxTokens, system;
+
+    if (this.tier === 'pro') {
+      model      = 'claude-opus-4-8';
+      maxTokens  = 16000;
+      system     = BASE_SYSTEM;
+    } else {
+      const useSonnet = isFullGame || isComplex || isScript || !this.fast;
+      model      = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+      maxTokens  = isFullGame ? 16000 : (isComplex || isScript) ? 8192 : 4096;
+      system     = (this.fast && !isFullGame && !isComplex && !isScript) ? FAST_SYSTEM : BASE_SYSTEM;
+    }
 
     // Build message array: inject history first, then current prompt with game context
     const messages = [];
@@ -250,7 +261,7 @@ class ClaudeModel {
           'anthropic-version': '2023-06-01',
           'content-type':      'application/json',
         },
-        timeout: isFullGame ? 90000 : (isComplex || isScript) ? 45000 : 20000,
+        timeout: (this.tier === 'pro' || isFullGame) ? 120000 : (isComplex || isScript) ? 60000 : 25000,
       }
     );
 
@@ -425,8 +436,9 @@ class LocalModel {
 class ModelRouter {
   constructor() {
     this.models = {
-      claude:     new ClaudeModel(false),
-      claudeFast: new ClaudeModel(true),
+      claudePro:  new ClaudeModel('pro'),
+      claude:     new ClaudeModel('standard'),
+      claudeFast: new ClaudeModel('fast'),
       gemini:     new GeminiModel(),
       deepseek:   new DeepSeekModel(),
       ollama:     new OllamaModel(),
@@ -434,7 +446,8 @@ class ModelRouter {
     };
 
     this.modelConfigs = {
-      claude:     { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.85, quality: 1.00, cost: 'paid' },
+      claudePro:  { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.70, quality: 1.00, cost: 'paid' },
+      claude:     { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.85, quality: 0.97, cost: 'paid' },
       claudeFast: { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.95, quality: 0.92, cost: 'paid' },
       gemini:     { enabled: !!process.env.GEMINI_API_KEY,    speed: 0.92, quality: 0.88, cost: 'paid' },
       deepseek:   { enabled: !!process.env.DEEPSEEK_API_KEY,  speed: 0.88, quality: 0.85, cost: 'paid' },
@@ -446,8 +459,22 @@ class ModelRouter {
   }
 
   _bestModel() {
-    const priority = ['claude', 'claudeFast', 'gemini', 'deepseek', 'ollama', 'local'];
+    const priority = ['claude', 'claudeFast', 'claudePro', 'gemini', 'deepseek', 'ollama', 'local'];
     return priority.find(m => this.modelConfigs[m].enabled) || 'local';
+  }
+
+  refreshConfigs() {
+    const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+    const hasGemini    = !!process.env.GEMINI_API_KEY;
+    const hasDeepSeek  = !!process.env.DEEPSEEK_API_KEY;
+    this.modelConfigs.claudePro.enabled  = hasAnthropic;
+    this.modelConfigs.claude.enabled     = hasAnthropic;
+    this.modelConfigs.claudeFast.enabled = hasAnthropic;
+    this.modelConfigs.gemini.enabled     = hasGemini;
+    this.modelConfigs.deepseek.enabled   = hasDeepSeek;
+    if (!this.modelConfigs[this.activeModel]?.enabled) {
+      this.activeModel = this._bestModel();
+    }
   }
 
   async generateCommands(prompt, options = {}) {

@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
+const fs = require('fs');
 const path = require('path');
 const WebSocketManager = require('./websocket');
 const ModelRouter = require('./models');
@@ -394,6 +395,38 @@ app.get('/api/version/update-info', async (req, res) => {
 app.get('/api/version/changelog', (req, res) => {
   const changelog = autoUpdater.versionManager.getChangelog();
   res.type('text/markdown').send(changelog);
+});
+
+// ── API key config ──────────────────────────────────────────────────────────
+const ENV_PATH = path.join(__dirname, '..', '.env');
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+    gemini:    !!process.env.GEMINI_API_KEY,
+    deepseek:  !!process.env.DEEPSEEK_API_KEY,
+  });
+});
+
+app.post('/api/config', (req, res) => {
+  const { anthropicKey, geminiKey, deepseekKey } = req.body;
+
+  if (anthropicKey !== undefined) process.env.ANTHROPIC_API_KEY = anthropicKey || '';
+  if (geminiKey    !== undefined) process.env.GEMINI_API_KEY    = geminiKey    || '';
+  if (deepseekKey  !== undefined) process.env.DEEPSEEK_API_KEY  = deepseekKey  || '';
+
+  const lines = [];
+  if (process.env.ANTHROPIC_API_KEY) lines.push(`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}`);
+  if (process.env.GEMINI_API_KEY)    lines.push(`GEMINI_API_KEY=${process.env.GEMINI_API_KEY}`);
+  if (process.env.DEEPSEEK_API_KEY)  lines.push(`DEEPSEEK_API_KEY=${process.env.DEEPSEEK_API_KEY}`);
+  if (process.env.PORT && process.env.PORT !== '7777') lines.push(`PORT=${process.env.PORT}`);
+  if (process.env.OLLAMA_MODEL)      lines.push(`OLLAMA_MODEL=${process.env.OLLAMA_MODEL}`);
+
+  try { fs.writeFileSync(ENV_PATH, lines.join('\n') + '\n'); } catch (e) { console.warn('[config] Could not write .env:', e.message); }
+
+  modelRouter.refreshConfigs();
+
+  res.json({ success: true, models: modelRouter.getAvailableModels() });
 });
 
 // UI root
