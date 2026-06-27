@@ -1169,6 +1169,17 @@ function Controller:start()
 	self._ws:on("close", function()
 		self._log:info("Controller", "connection closed")
 	end)
+
+	-- Detect game/place switches by watching game.PlaceId changes
+	local lastPlaceId = game.PlaceId
+	RunService.Heartbeat:Connect(function()
+		local ok, currentPlaceId = pcall(function() return game.PlaceId end)
+		if ok and currentPlaceId ~= lastPlaceId then
+			lastPlaceId = currentPlaceId
+			self._log:info("Controller", "place changed to " .. tostring(currentPlaceId) .. " — reporting state")
+			self:reportState()
+		end
+	end)
 end
 
 function Controller:_handleRaw(raw)
@@ -1522,10 +1533,16 @@ function Controller:reportState()
 end
 
 function Controller:_currentState()
+	local ok, placeId = pcall(function() return game.PlaceId end)
+	local ok2, gameId = pcall(function() return game.GameId end)
+	local ok3, gameName = pcall(function() return game.Name end)
 	return {
 		workspaceChildren = #workspace:GetChildren(),
 		executing         = self:_execCount(),
 		ts                = os.time(),
+		PlaceId           = ok  and placeId  or 0,
+		GameId            = ok2 and gameId   or 0,
+		GameName          = ok3 and gameName  or "Unknown",
 	}
 end
 
