@@ -571,6 +571,7 @@ MIT - Do whatever you want with it
 - 🌐 Browser: Clear cache, refresh page
 
 ---
+## VortexDQ Corporation [Just Chilling]
 
 **Built for creators who want to code faster.**
 
