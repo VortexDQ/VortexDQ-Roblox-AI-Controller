@@ -912,3 +912,105 @@ html, body {
 }
 
 .no-key-banner.hidden { display: none; }
+
+/* ── Plugin dot in chat input area ───────────────────────────────────────── */
+.plugin-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+.plugin-dot.connected    { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.plugin-dot.disconnected { background: #475569; }
+
+/* ── Game info banner in sidebar ─────────────────────────────────────────── */
+.game-info-banner {
+    margin: 8px 12px;
+    padding: 7px 12px;
+    background: rgba(99,102,241,0.1);
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.game-info-banner.hidden { display: none; }
+.game-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    flex-shrink: 0;
+    box-shadow: 0 0 5px var(--success);
+}
+
+/* ── Current game info in Plugin tab ─────────────────────────────────────── */
+.current-game-info {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 16px 0;
+}
+.current-game-info.hidden { display: none; }
+.game-detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+}
+.game-detail-row:last-child { border-bottom: none; }
+.game-detail-row span:first-child { color: var(--text-secondary); }
+
+/* ── Disabled model card ─────────────────────────────────────────────────── */
+.model-card.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.model-locked {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+}
+.model-tag {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+/* ── Error badge on nav ───────────────────────────────────────────────────── */
+.error-badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--error);
+    color: white;
+    border-radius: 99px;
+    padding: 1px 5px;
+    margin-left: auto;
+    min-width: 18px;
+    text-align: center;
+}
+.error-badge.hidden { display: none; }
+
+/* ── Execution result colours ────────────────────────────────────────────── */
+.exec-ok   { color: var(--success); font-size: 12px; }
+.exec-fail { color: var(--error);   font-size: 12px; }
+
+/* ── Warning message type ────────────────────────────────────────────────── */
+.message-ai .message-text[data-type="warning"] { color: var(--warning); }
+
+/* ── Setting description text ────────────────────────────────────────────── */
+.setting-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}

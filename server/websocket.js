@@ -9,31 +9,36 @@ class WebSocketManager extends EventEmitter {
   constructor(httpServer) {
     super();
     this.httpServer     = httpServer;
-    this.wss            = null;          // browser WebSocket server (optional)
-    this.connections    = new Map();     // browser ws connections
+    this.wss            = null;
+    this.connections    = new Map();
     this.lastKnownState = {};
 
-    // HTTP-polling plugin state
     this._pluginConnected  = false;
     this._pluginLastSeen   = 0;
     this._pluginId         = null;
-    this._outboundQueue    = [];         // commands waiting for the plugin to poll
+    this._outboundQueue    = [];
     this._maxQueue         = 256;
-    this._resultListeners  = new Map();  // commandId -> { resolve, reject, timer }
+    this._resultListeners  = new Map();
+
+    // Track place/game identity so we can detect switches
+    this._currentPlaceId   = null;
+    this._currentGameName  = null;
 
     // Heartbeat: if plugin hasn't polled in 10s, mark disconnected
     setInterval(() => {
       if (this._pluginConnected && Date.now() - this._pluginLastSeen > 10000) {
         this._pluginConnected = false;
         this._pluginId        = null;
+        this._currentPlaceId  = null;
+        this._currentGameName = null;
         console.log('[WS] Plugin connection timed out');
         this.emit('disconnected', 'plugin');
+        this.broadcastToBrowser({ type: 'pluginDisconnected' });
       }
     }, 3000);
   }
 
   initialize() {
-    // Optionally bring up a browser-facing WebSocket server
     try {
       const WebSocket = require('ws');
       this.wss = new WebSocket.Server({ server: this.httpServer, perMessageDeflate: false });
@@ -45,6 +50,15 @@ class WebSocketManager extends EventEmitter {
         ws.isAlive    = true;
         this.connections.set(id, ws);
         console.log(`[WS] Browser connected: ${id}`);
+
+        // Send current state immediately on connect
+        ws.send(JSON.stringify({
+          type:    'initialState',
+          plugin:  this._pluginConnected,
+          placeId: this._currentPlaceId,
+          game:    this._currentGameName,
+          state:   this.lastKnownState,
+        }));
 
         ws.on('message', d => this._handleBrowserMessage(ws, d));
         ws.on('close',   () => { this.connections.delete(id); });
@@ -66,16 +80,16 @@ class WebSocketManager extends EventEmitter {
 
   // ── Plugin HTTP interface ──────────────────────────────────────────────
 
-  // Called by Express route: GET /plugin/poll
-  // Drains up to 50 queued commands per poll so Studio builds don't wait 100ms per command.
   pluginPoll(req, res) {
     this._pluginLastSeen  = Date.now();
+    const wasConnected    = this._pluginConnected;
     this._pluginConnected = true;
 
     if (!this._pluginId) {
       this._pluginId = this.generateConnectionId();
       console.log(`[WS] Plugin connected via HTTP polling: ${this._pluginId}`);
       this.emit('connected', this._pluginId);
+      this.broadcastToBrowser({ type: 'pluginConnected', id: this._pluginId });
     }
 
     const BATCH_MAX = 50;
@@ -93,8 +107,6 @@ class WebSocketManager extends EventEmitter {
     }
   }
 
-  // Called by Express route: POST /plugin
-  // Plugin posts results, state updates, etc. here.
   pluginReceive(req, res) {
     this._pluginLastSeen  = Date.now();
     this._pluginConnected = true;
@@ -117,9 +129,8 @@ class WebSocketManager extends EventEmitter {
     switch (message.type) {
       case 'result': {
         const { id, success, result, error, state } = message;
-        if (state) this.lastKnownState = { ...this.lastKnownState, ...state };
+        if (state) this._mergeState(state);
 
-        // Resolve the pending promise for this command
         const listener = this._resultListeners.get(id);
         if (listener) {
           clearTimeout(listener.timer);
@@ -128,18 +139,47 @@ class WebSocketManager extends EventEmitter {
           else         listener.reject(new Error(error || 'Command failed'));
         }
 
-        // Also emit for any legacy event listeners
         this.emit('result', { commandId: id, success, result, error });
         break;
       }
       case 'state': {
         const { state } = message;
-        if (state) this.lastKnownState = { ...this.lastKnownState, ...state };
+        if (state) this._mergeState(state);
         this.emit('stateUpdate', { state: this.lastKnownState });
         break;
       }
       default:
         console.log('[WS] Unknown plugin message type:', message.type);
+    }
+  }
+
+  _mergeState(state) {
+    this.lastKnownState = { ...this.lastKnownState, ...state };
+
+    // Detect game / place switches
+    const newPlaceId   = state.PlaceId   || state.placeId   || null;
+    const newGameName  = state.GameName  || state.gameName  || state.Name || null;
+
+    if (newPlaceId && newPlaceId !== this._currentPlaceId) {
+      const oldPlaceId   = this._currentPlaceId;
+      this._currentPlaceId  = newPlaceId;
+      this._currentGameName = newGameName;
+      console.log(`[WS] Game switched: ${oldPlaceId} → ${newPlaceId} (${newGameName || 'unknown'})`);
+      this.emit('gameSwitched', { oldPlaceId, newPlaceId, gameName: newGameName });
+      this.broadcastToBrowser({
+        type:       'gameSwitched',
+        oldPlaceId,
+        newPlaceId,
+        gameName:   newGameName,
+        state:      this.lastKnownState,
+      });
+    } else if (newGameName && newGameName !== this._currentGameName) {
+      this._currentGameName = newGameName;
+      this.broadcastToBrowser({
+        type:     'gameNameUpdated',
+        gameName: newGameName,
+        state:    this.lastKnownState,
+      });
     }
   }
 
@@ -160,10 +200,9 @@ class WebSocketManager extends EventEmitter {
     }
 
     this._outboundQueue.push(msg);
-    return true;   // always succeeds (queued)
+    return true;
   }
 
-  // Promise-based: resolves when the plugin returns a result for this command
   sendCommandAndWait(command, timeoutMs = 8000) {
     return new Promise((resolve, reject) => {
       const id  = command.id || this.generateCommandId();
@@ -186,7 +225,6 @@ class WebSocketManager extends EventEmitter {
     try {
       const msg = JSON.parse(data.toString());
       ws.lastUpdate = new Date();
-      // Forward browser requests to plugin if needed
       if (msg.type === 'command') {
         this.sendCommand(null, msg);
       }
@@ -200,18 +238,21 @@ class WebSocketManager extends EventEmitter {
     });
   }
 
-  getConnectionCount()  { return this._pluginConnected ? 1 : 0; }
-  isPluginConnected()   { return this._pluginConnected; }
+  getConnectionCount()    { return this._pluginConnected ? 1 : 0; }
+  isPluginConnected()     { return this._pluginConnected; }
   getPluginConnectionId() { return this._pluginConnected ? this._pluginId : null; }
-  getLastKnownState()   { return this.lastKnownState; }
+  getLastKnownState()     { return this.lastKnownState; }
+  getCurrentGame()        { return { placeId: this._currentPlaceId, gameName: this._currentGameName }; }
 
   getAllConnections() {
     if (!this._pluginConnected) return [];
     return [{
-      id: this._pluginId,
-      connected: true,
-      ready: true,
+      id:         this._pluginId,
+      connected:  true,
+      ready:      true,
       lastUpdate: new Date(this._pluginLastSeen),
+      placeId:    this._currentPlaceId,
+      gameName:   this._currentGameName,
     }];
   }
 

@@ -1,6 +1,5 @@
 const Protocol = require('./protocol');
 
-// Actions that create something — must run before SetProperty on their output
 const CREATE_ACTIONS = new Set([
   'CreateInstance','CreatePart','CreateFolder','CreateScript','CreateUI',
 ]);
@@ -16,10 +15,7 @@ class SmartExecutor {
   async executeWithAnalysis(commands, context = {}) {
     const start    = Date.now();
     const prepared = this._prepare(commands, context);
-
-    // Execute — no artificial delays between batches
     const results  = await this._execute(prepared);
-
     const duration = Date.now() - start;
     this._record(prepared, results, duration);
 
@@ -31,11 +27,10 @@ class SmartExecutor {
     };
   }
 
-  // Deduplicate, sort creates-first (stable), apply quality defaults
   _prepare(commands, context) {
     const indexed = commands.map((cmd, i) => ({ cmd, i }));
 
-    const seen = new Set();
+    const seen   = new Set();
     const unique = indexed.filter(({ cmd }) => {
       const key = `${cmd.action}:${JSON.stringify(cmd.data)}`;
       if (seen.has(key)) return false;
@@ -52,17 +47,14 @@ class SmartExecutor {
 
     const sorted = unique.map(({ cmd }) => cmd);
 
-    // Quality defaults — anchor parts, give scripts names
     if (!context.skipEnhancements) {
       sorted.forEach(cmd => {
         if (cmd.action === 'CreatePart') {
           cmd.data.properties = cmd.data.properties || {};
-          if (cmd.data.properties.Anchored === undefined) cmd.data.properties.Anchored = true;
-          if (cmd.data.properties.CastShadow === undefined) cmd.data.properties.CastShadow = true;
+          if (cmd.data.properties.Anchored  === undefined) cmd.data.properties.Anchored  = true;
+          if (cmd.data.properties.CastShadow=== undefined) cmd.data.properties.CastShadow = true;
         }
-        if (cmd.action === 'CreateScript' && !cmd.data.name) {
-          cmd.data.name = 'Script';
-        }
+        if (cmd.action === 'CreateScript' && !cmd.data.name) cmd.data.name = 'Script';
       });
     }
 
@@ -70,7 +62,6 @@ class SmartExecutor {
   }
 
   async _execute(commands) {
-    // Send the full prepared list in one engine call — batch polling handles throughput
     return this.commandEngine.executeCommandBatch(commands);
   }
 
@@ -87,14 +78,18 @@ class SmartExecutor {
 
   getStats() {
     const t = this.executionHistory.length;
-    if (t === 0) return { totalExecutions: 0, successRate: '0%', avgDuration: '0ms' };
-    const ok  = this.executionHistory.filter(e => e.failed === 0).length;
-    const avg = Math.round(this.executionHistory.reduce((s, e) => s + e.duration, 0) / t);
+    if (t === 0) {
+      return { totalExecutions: 0, successRate: '0%', avgDuration: '0ms', avgCommandsPerExecution: 0 };
+    }
+    const ok      = this.executionHistory.filter(e => e.failed === 0).length;
+    const avg     = Math.round(this.executionHistory.reduce((s, e) => s + e.duration, 0) / t);
+    const avgCmds = Math.round(this.executionHistory.reduce((s, e) => s + e.commandCount, 0) / t);
     return {
-      totalExecutions:  t,
-      successRate:      `${((ok / t) * 100).toFixed(1)}%`,
-      avgDuration:      `${avg}ms`,
-      recentExecutions: this.executionHistory.slice(-10),
+      totalExecutions:         t,
+      successRate:             `${((ok / t) * 100).toFixed(1)}%`,
+      avgDuration:             `${avg}ms`,
+      avgCommandsPerExecution: avgCmds,
+      recentExecutions:        this.executionHistory.slice(-10),
     };
   }
 }

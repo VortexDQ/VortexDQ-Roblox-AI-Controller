@@ -15,7 +15,9 @@ Return ONLY a raw JSON object. Zero markdown. Zero code fences.
 
 • message — REQUIRED. Talk naturally: explain what you're building, answer questions, give tips.
   Be concise but helpful (2-5 sentences). Never leave this empty.
-• commands — Studio commands to run. Use [] when only answering a question with no build needed.
+• commands — Studio commands to run. Use [] ONLY when the user is asking a pure question with absolutely no build or code involved.
+  If the user asks to "write a script", "create a script", "make a system", "build", or "add" ANYTHING — you MUST produce commands.
+  A script request ALWAYS needs at least one CreateScript command.
 Every command must be valid, complete, and correctly ordered (folders before children, remotes before scripts).
 
 ━━━ COMMAND SCHEMA ━━━
@@ -197,7 +199,58 @@ Create in this order:
 
 const FAST_SYSTEM = `You are VortexDQ — elite Roblox AI. Return ONLY JSON: {"message":"...", "commands":[...]} — no markdown.
 Always write a friendly message. Use SmoothPlastic/Neon/Glass. Anchor parts. Modern Lua: task.* only, never wait().
-Scripts must be COMPLETE and runnable — no placeholders, no "-- TODO", no pseudocode. Future lighting always.`;
+Scripts must be COMPLETE and runnable — no placeholders, no "-- TODO", no pseudocode. Future lighting always.
+IMPORTANT: Script requests ALWAYS need CreateScript commands. Never return empty commands for a build/script request.`;
+
+// ─── Shared parse helper ──────────────────────────────────────────────────────
+
+function parseAIResponse(text) {
+  let s = text.trim();
+  // Strip markdown fences
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+  // Try full object { message, commands }
+  const objStart = s.indexOf('{');
+  const objEnd   = s.lastIndexOf('}');
+  if (objStart !== -1 && objEnd > objStart) {
+    try {
+      const obj = JSON.parse(s.slice(objStart, objEnd + 1));
+      if (obj && Array.isArray(obj.commands)) {
+        const message = typeof obj.message === 'string' && obj.message.trim()
+          ? obj.message.trim()
+          : defaultMessage(obj.commands);
+        return { message, commands: obj.commands };
+      }
+    } catch (_) {}
+  }
+
+  // Fallback: bare array
+  const arrStart = s.indexOf('[');
+  const arrEnd   = s.lastIndexOf(']');
+  if (arrStart === -1 || arrEnd === -1) throw new Error('No JSON in AI response');
+  const arr = JSON.parse(s.slice(arrStart, arrEnd + 1));
+  if (!Array.isArray(arr)) throw new Error('AI response is not a command array');
+  return { message: defaultMessage(arr), commands: arr };
+}
+
+function defaultMessage(commands) {
+  if (!commands.length) {
+    return 'Happy to help — tell me what you want to build or ask me anything about your game.';
+  }
+  const types = [...new Set(commands.map(c => c.action))];
+  return `On it — building ${commands.length} step${commands.length !== 1 ? 's' : ''} in Studio (${types.slice(0, 5).join(', ')}${types.length > 5 ? ', …' : ''}).`;
+}
+
+function analyseCommands(commands) {
+  return {
+    commandCount: commands.length,
+    types:        [...new Set(commands.map(c => c.action))],
+    hasScripts:   commands.some(c => ['CreateScript', 'EditScript'].includes(c.action)),
+    hasUI:        commands.some(c => c.action === 'CreateUI'),
+    hasParts:     commands.some(c => c.action === 'CreatePart'),
+    complexity:   commands.length > 50 ? 'full-game' : commands.length > 20 ? 'high' : commands.length > 8 ? 'medium' : 'low',
+  };
+}
 
 // ─── Model implementations ────────────────────────────────────────────────────
 
@@ -214,7 +267,7 @@ class ClaudeModel {
 
     const isFullGame = /\b(full game|complete game|entire game|whole game|make a game|create a game|build a game)\b/i.test(prompt);
     const isComplex  = /\b(gun|weapon|cuff|arrest|restrain|vehicle|car|bike|door|keycard|datastore|save|leaderboard|combat|system|mechanic|tool|ability|inventory|shop|npc|round|spawn|checkpoint|ui|gui|hud|team|admin|ban|kick|tween|animate|particle|effect|badge|gamepass|product|proximity|prompt|click detector|billboard|surface)\b/i.test(prompt);
-    const isScript   = /\b(script|code|lua|function|module|remote|localscript|serverscript|modulescript|tool script|working|fix|debug|write|implement|logic|handler|controller|manager|service|system)\b/i.test(prompt);
+    const isScript   = /\b(script|code|lua|function|module|remote|localscript|serverscript|modulescript|tool script|working|fix|debug|write|implement|logic|handler|controller|manager|service|system|fly|flying|speed|jump|kill|damage|heal|respawn|teleport|chat|message|print)\b/i.test(prompt);
 
     let model, maxTokens, system;
 
@@ -229,12 +282,9 @@ class ClaudeModel {
       system     = (this.fast && !isFullGame && !isComplex && !isScript) ? FAST_SYSTEM : BASE_SYSTEM;
     }
 
-    // Build message array: inject history first, then current prompt with game context
     const messages = [];
-
-    // Include last N turns of history for context
     if (history && history.length > 0) {
-      const recentHistory = history.slice(-6); // last 3 exchanges
+      const recentHistory = history.slice(-6);
       for (const turn of recentHistory) {
         messages.push({ role: turn.role, content: turn.content });
       }
@@ -249,12 +299,7 @@ class ClaudeModel {
     const t0 = Date.now();
     const response = await axios.post(
       'https://api.anthropic.com/v1/messages',
-      {
-        model,
-        max_tokens: maxTokens,
-        system,
-        messages,
-      },
+      { model, max_tokens: maxTokens, system, messages },
       {
         headers: {
           'x-api-key':         apiKey,
@@ -265,9 +310,9 @@ class ClaudeModel {
       }
     );
 
-    const text      = response.data.content[0].text;
-    const parsed    = this._parse(text);
-    const latency   = Date.now() - t0;
+    const text    = response.data.content[0].text;
+    const parsed  = parseAIResponse(text);
+    const latency = Date.now() - t0;
 
     console.log(`[Claude/${model}] ${parsed.commands.length} cmds, ${latency}ms — ${parsed.message.slice(0, 72)}${parsed.message.length > 72 ? '…' : ''}`);
 
@@ -280,52 +325,7 @@ class ClaudeModel {
       isFullGame,
       isComplex,
       rawText:   text,
-      analysis:  this._analyse(parsed.commands),
-    };
-  }
-
-  _parse(text) {
-    let s = text.trim();
-    s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-
-    const objStart = s.indexOf('{');
-    const objEnd   = s.lastIndexOf('}');
-    if (objStart !== -1 && objEnd > objStart) {
-      try {
-        const obj = JSON.parse(s.slice(objStart, objEnd + 1));
-        if (obj && Array.isArray(obj.commands)) {
-          const message = typeof obj.message === 'string' && obj.message.trim()
-            ? obj.message.trim()
-            : this._defaultMessage(obj.commands);
-          return { message, commands: obj.commands };
-        }
-      } catch (_) {}
-    }
-
-    const arrStart = s.indexOf('[');
-    const arrEnd   = s.lastIndexOf(']');
-    if (arrStart === -1 || arrEnd === -1) throw new Error('No JSON object or array in AI response');
-    const arr = JSON.parse(s.slice(arrStart, arrEnd + 1));
-    if (!Array.isArray(arr)) throw new Error('AI response is not a command array');
-    return { message: this._defaultMessage(arr), commands: arr };
-  }
-
-  _defaultMessage(commands) {
-    if (!commands.length) {
-      return 'Happy to help — tell me what you want to build or ask me anything about your game.';
-    }
-    const types = [...new Set(commands.map(c => c.action))];
-    return `On it — building ${commands.length} step${commands.length !== 1 ? 's' : ''} in Studio (${types.slice(0, 5).join(', ')}${types.length > 5 ? ', …' : ''}).`;
-  }
-
-  _analyse(commands) {
-    return {
-      commandCount: commands.length,
-      types:        [...new Set(commands.map(c => c.action))],
-      hasScripts:   commands.some(c => ['CreateScript', 'EditScript'].includes(c.action)),
-      hasUI:        commands.some(c => c.action === 'CreateUI'),
-      hasParts:     commands.some(c => c.action === 'CreatePart'),
-      complexity:   commands.length > 50 ? 'full-game' : commands.length > 20 ? 'high' : commands.length > 8 ? 'medium' : 'low',
+      analysis:  analyseCommands(parsed.commands),
     };
   }
 }
@@ -335,19 +335,33 @@ class GeminiModel {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
-    const content = [BASE_SYSTEM, gameContext ? `GAME STATE:\n${JSON.stringify(gameContext)}` : '', 'REQUEST: ' + prompt].join('\n\n');
+    const content = [
+      BASE_SYSTEM,
+      gameContext ? `GAME STATE:\n${JSON.stringify(gameContext)}` : '',
+      'REQUEST: ' + prompt,
+    ].filter(Boolean).join('\n\n');
 
     const t0 = Date.now();
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       { contents: [{ parts: [{ text: content }] }] },
-      { timeout: 20000 }
+      { timeout: 30000 }
     );
 
-    const text     = response.data.candidates[0].content.parts[0].text;
-    const s        = text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
-    const commands = JSON.parse(s.slice(s.indexOf('['), s.lastIndexOf(']') + 1));
-    return { success: true, commands, model: 'gemini/2.0-flash', latency: Date.now() - t0 };
+    const text    = response.data.candidates[0].content.parts[0].text;
+    const parsed  = parseAIResponse(text);
+    const latency = Date.now() - t0;
+
+    console.log(`[Gemini] ${parsed.commands.length} cmds, ${latency}ms`);
+
+    return {
+      success:  true,
+      message:  parsed.message,
+      commands: parsed.commands,
+      model:    'gemini/2.0-flash',
+      latency,
+      analysis: analyseCommands(parsed.commands),
+    };
   }
 }
 
@@ -364,24 +378,34 @@ class DeepSeekModel {
     const response = await axios.post(
       'https://api.deepseek.com/chat/completions',
       {
-        model: 'deepseek-coder',
-        messages: [
+        model:       'deepseek-coder',
+        messages:    [
           { role: 'system', content: BASE_SYSTEM },
           { role: 'user',   content: userContent },
         ],
         temperature: 0.6,
-        max_tokens: 4096,
+        max_tokens:  4096,
       },
       {
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        timeout: 25000,
+        timeout: 30000,
       }
     );
 
-    const text     = response.data.choices[0].message.content;
-    const s        = text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
-    const commands = JSON.parse(s.slice(s.indexOf('['), s.lastIndexOf(']') + 1));
-    return { success: true, commands, model: 'deepseek/coder', latency: Date.now() - t0 };
+    const text    = response.data.choices[0].message.content;
+    const parsed  = parseAIResponse(text);
+    const latency = Date.now() - t0;
+
+    console.log(`[DeepSeek] ${parsed.commands.length} cmds, ${latency}ms`);
+
+    return {
+      success:  true,
+      message:  parsed.message,
+      commands: parsed.commands,
+      model:    'deepseek/coder',
+      latency,
+      analysis: analyseCommands(parsed.commands),
+    };
   }
 }
 
@@ -393,10 +417,9 @@ class OllamaModel {
       { model: process.env.OLLAMA_MODEL || 'mistral', prompt: `${FAST_SYSTEM}\n\nREQUEST: ${prompt}`, stream: false },
       { timeout: 120000 }
     );
-    const text = response.data.response;
-    const s    = text.match(/\[[\s\S]*\]/)?.[0];
-    if (!s) throw new Error('No JSON array in Ollama response');
-    return { success: true, commands: JSON.parse(s), model: 'ollama/local', latency: Date.now() - t0 };
+    const text   = response.data.response;
+    const parsed = parseAIResponse(text);
+    return { success: true, message: parsed.message, commands: parsed.commands, model: 'ollama/local', latency: Date.now() - t0, analysis: analyseCommands(parsed.commands) };
   }
 }
 
@@ -417,7 +440,7 @@ class LocalModel {
     if (lower.includes('folder')) {
       commands.push({ action: 'CreateFolder', data: { parent: 'Workspace', name: 'Folder' } });
     }
-    if (lower.includes('script')) {
+    if (lower.includes('script') || lower.includes('fly') || lower.includes('lua')) {
       commands.push({
         action: 'CreateScript',
         data: { parent: 'ServerScriptService', name: 'Script', code: "local Players = game:GetService('Players')\nprint('Script loaded')" },
@@ -427,7 +450,7 @@ class LocalModel {
       commands.push({ action: 'GetExplorerTree', data: {} });
     }
 
-    return { success: true, commands, model: 'local', latency: 0 };
+    return { success: true, message: 'Using local fallback — no API key configured.', commands, model: 'local', latency: 0, analysis: analyseCommands(commands) };
   }
 }
 
@@ -446,20 +469,20 @@ class ModelRouter {
     };
 
     this.modelConfigs = {
-      claudePro:  { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.70, quality: 1.00, cost: 'paid' },
-      claude:     { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.85, quality: 0.97, cost: 'paid' },
-      claudeFast: { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.95, quality: 0.92, cost: 'paid' },
-      gemini:     { enabled: !!process.env.GEMINI_API_KEY,    speed: 0.92, quality: 0.88, cost: 'paid' },
-      deepseek:   { enabled: !!process.env.DEEPSEEK_API_KEY,  speed: 0.88, quality: 0.85, cost: 'paid' },
-      ollama:     { enabled: true,                             speed: 0.90, quality: 0.70, cost: 'free' },
-      local:      { enabled: true,                             speed: 1.00, quality: 0.30, cost: 'free' },
+      claudePro:  { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.70, quality: 1.00, cost: 'paid', label: 'Claude Opus Pro' },
+      claude:     { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.85, quality: 0.97, cost: 'paid', label: 'Claude Sonnet'   },
+      claudeFast: { enabled: !!process.env.ANTHROPIC_API_KEY, speed: 0.95, quality: 0.92, cost: 'paid', label: 'Claude Fast'     },
+      gemini:     { enabled: !!process.env.GEMINI_API_KEY,    speed: 0.92, quality: 0.88, cost: 'paid', label: 'Gemini 2.0 Flash'},
+      deepseek:   { enabled: !!process.env.DEEPSEEK_API_KEY,  speed: 0.88, quality: 0.85, cost: 'paid', label: 'DeepSeek Coder'  },
+      ollama:     { enabled: true,                             speed: 0.90, quality: 0.70, cost: 'free', label: 'Ollama Local'    },
+      local:      { enabled: true,                             speed: 1.00, quality: 0.30, cost: 'free', label: 'Local Fallback'  },
     };
 
     this.activeModel = this._bestModel();
   }
 
   _bestModel() {
-    const priority = ['claude', 'claudeFast', 'claudePro', 'gemini', 'deepseek', 'ollama', 'local'];
+    const priority = ['claudePro', 'claude', 'claudeFast', 'gemini', 'deepseek', 'ollama', 'local'];
     return priority.find(m => this.modelConfigs[m].enabled) || 'local';
   }
 
@@ -494,15 +517,15 @@ class ModelRouter {
       return result;
     } catch (error) {
       console.error(`[MODELS] ${modelName} failed:`, error.message);
-      const fallbacks = ['claudeFast', 'gemini', 'deepseek', 'ollama', 'local'];
+      const fallbacks = ['claude', 'claudeFast', 'gemini', 'deepseek', 'ollama', 'local'];
       for (const fb of fallbacks) {
         if (fb !== modelName && this.modelConfigs[fb].enabled) {
           console.log(`[MODELS] Falling back to ${fb}`);
           try {
-            const r      = await this.models[fb].generateCommands(prompt, null, []);
-            r.model      = fb;
-            r.fallback   = true;
-            r.timestamp  = new Date().toISOString();
+            const r     = await this.models[fb].generateCommands(prompt, null, []);
+            r.model     = fb;
+            r.fallback  = true;
+            r.timestamp = new Date().toISOString();
             return r;
           } catch (_) {}
         }
@@ -518,10 +541,17 @@ class ModelRouter {
     return { active: name, config: this.modelConfigs[name] };
   }
 
+  // Returns ALL models — enabled ones are available, disabled are shown as locked
   getAvailableModels() {
-    return Object.entries(this.modelConfigs)
-      .filter(([, c]) => c.enabled)
-      .map(([name, c]) => ({ name, ...c, active: name === this.activeModel }));
+    return Object.entries(this.modelConfigs).map(([name, c]) => ({
+      name,
+      label:   c.label,
+      speed:   c.speed,
+      quality: c.quality,
+      cost:    c.cost,
+      enabled: c.enabled,
+      active:  name === this.activeModel,
+    }));
   }
 }
 
