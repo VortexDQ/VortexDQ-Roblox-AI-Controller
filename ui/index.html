@@ -27,7 +27,6 @@
                 <button class="nav-item" data-tab="errors">
                     <span class="icon">⚠️</span>
                     <span>Errors</span>
-                    <span id="errorBadge" class="error-badge hidden"></span>
                 </button>
                 <button class="nav-item" data-tab="stats">
                     <span class="icon">📊</span>
@@ -43,12 +42,6 @@
                     <span id="key-badge" class="key-alert hidden">!</span>
                 </button>
             </nav>
-
-            <!-- Live game banner in sidebar -->
-            <div id="gameInfoBanner" class="game-info-banner hidden">
-                <span class="game-dot"></span>
-                <span id="gameInfoText">Studio Connected</span>
-            </div>
 
             <div class="sidebar-footer">
                 <button class="btn-secondary" id="clearChat">
@@ -71,14 +64,13 @@
                                 <span>Enhance Output</span>
                             </label>
                             <span class="model-badge" id="modelBadge">claude</span>
-                            <span id="pluginDot" class="plugin-dot disconnected" title="Plugin disconnected"></span>
                         </div>
 
                         <form id="chatForm" class="chat-form">
                             <div class="input-group">
                                 <textarea
                                     id="userInput"
-                                    placeholder="Describe what you want to build… e.g. 'write a fly script for all players'"
+                                    placeholder="Describe your game creation... (e.g., 'build an obstacle course with 10 platforms and a finish line')"
                                     rows="3"
                                 ></textarea>
                                 <button type="submit" class="btn-send" id="sendBtn">
@@ -89,7 +81,7 @@
                         </form>
 
                         <div class="help-text">
-                            💡 Commands: <code>/scan</code> — security scan &nbsp;|&nbsp; <code>/analyze</code> — workspace analysis &nbsp;|&nbsp; <code>/analyze deep</code> — deep analysis
+                            💡 Tip: Be specific! Describe what you want: colors, sizes, positions, interactions
                         </div>
                     </div>
                 </div>
@@ -99,14 +91,14 @@
             <div class="tab-content" id="models-tab">
                 <div class="models-container">
                     <h2>AI Models</h2>
-                    <p class="description">Select the AI model powering your Roblox game generation. Locked models need an API key in Settings.</p>
+                    <p class="description">Select the AI model powering your Roblox game generation.</p>
 
                     <div class="models-grid" id="modelsGrid">
                         <!-- Populated by JS -->
                     </div>
 
                     <div class="model-info">
-                        <h3>Model Comparison</h3>
+                        <h3>Model Information</h3>
                         <table class="info-table">
                             <thead>
                                 <tr>
@@ -114,7 +106,6 @@
                                     <th>Speed</th>
                                     <th>Quality</th>
                                     <th>Type</th>
-                                    <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody id="modelTable">
@@ -174,10 +165,7 @@
                         </div>
                     </div>
 
-                    <div style="display:flex;gap:8px;margin-top:16px;">
-                        <button class="btn-secondary" id="exportErrors">📥 Export Errors</button>
-                        <button class="btn-secondary" id="clearErrors" style="color:#ef4444;">🗑️ Clear Errors</button>
-                    </div>
+                    <button class="btn-secondary" id="exportErrors">📥 Export Errors</button>
                 </div>
             </div>
 
@@ -196,12 +184,12 @@
                             <div class="stat-value" id="successRate">0%</div>
                         </div>
                         <div class="stat-card large">
-                            <div class="stat-label">Avg Commands / Exec</div>
+                            <div class="stat-label">Avg Commands/Execution</div>
                             <div class="stat-value" id="avgCommands">0</div>
                         </div>
                         <div class="stat-card large">
-                            <div class="stat-label">Avg Duration</div>
-                            <div class="stat-value" id="avgDuration">0ms</div>
+                            <div class="stat-label">Active Connections</div>
+                            <div class="stat-value" id="activeConnections">0</div>
                         </div>
                     </div>
 
@@ -227,11 +215,6 @@
                         <p class="status-description" id="statusDescription">
                             Plugin not detected. Make sure Roblox Studio is running and the plugin is installed.
                         </p>
-                    </div>
-
-                    <div id="currentGameInfo" class="current-game-info hidden">
-                        <h3>Current Game</h3>
-                        <div id="gameDetails" class="game-details"></div>
                     </div>
 
                     <div class="installation-guide">

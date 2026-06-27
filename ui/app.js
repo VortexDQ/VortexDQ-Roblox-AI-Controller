@@ -10,11 +10,10 @@ class VortexDQUI {
     this.toastContainer  = document.getElementById('toastContainer');
     this.loadingSpinner  = document.getElementById('loadingSpinner');
 
-    this.activeModel   = 'claude';
-    this.chatHistory   = [];
-    this.pluginOnline  = false;
-    this.currentGame   = null;
-    this._ws           = null;
+    this.activeModel  = 'claude';
+    this.chatHistory  = [];
+    this.pluginOnline = false;
+    this._ws          = null;
 
     this.initEventListeners();
     this.loadModels();
@@ -35,21 +34,10 @@ class VortexDQUI {
     try {
       const ws = new WebSocket(`ws://127.0.0.1:${location.port || 7777}`);
       this._ws = ws;
-
-      ws.onopen = () => console.log('[WS] Connected to server');
-
       ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          this._handleServerMessage(msg);
-        } catch (_) {}
+        try { this._handleServerMessage(JSON.parse(e.data)); } catch (_) {}
       };
-
-      ws.onclose = () => {
-        this._ws = null;
-        // Reconnect after 5s
-        setTimeout(() => this._connectWebSocket(), 5000);
-      };
+      ws.onclose = () => { this._ws = null; setTimeout(() => this._connectWebSocket(), 5000); };
     } catch (_) {}
   }
 
@@ -57,81 +45,39 @@ class VortexDQUI {
     switch (msg.type) {
       case 'initialState':
         this._setPluginStatus(msg.plugin);
-        if (msg.game) this._updateGameInfo({ placeId: msg.placeId, gameName: msg.game });
         break;
-
       case 'pluginConnected':
         this._setPluginStatus(true);
         this.showToast('Roblox Studio plugin connected!', 'success');
         break;
-
       case 'pluginDisconnected':
         this._setPluginStatus(false);
-        this._updateGameInfo(null);
         this.showToast('Plugin disconnected from Studio', 'error');
         break;
-
       case 'gameSwitched':
-        this._updateGameInfo({ placeId: msg.newPlaceId, gameName: msg.gameName });
         this.addMessage('ai',
-          `🔄 Switched game detected! Now editing: ${msg.gameName || 'Place ' + msg.newPlaceId}`,
+          `Game switched — now editing: ${msg.gameName || 'Place ' + msg.newPlaceId}`,
           'info'
         );
         this.showToast(`Game switched → ${msg.gameName || msg.newPlaceId}`, 'info');
         break;
-
-      case 'gameNameUpdated':
-        this._updateGameInfo({ gameName: msg.gameName });
-        break;
     }
   }
 
-  // ── Plugin / game status helpers ───────────────────────────────────────────
   _setPluginStatus(online) {
     this.pluginOnline = online;
-
-    // Sidebar dot on Plugin nav item
-    const dot  = document.querySelector('.nav-item[data-tab="plugins"] .icon');
-    // Input area dot
-    const pdot = document.getElementById('pluginDot');
-
     const statusDot  = document.querySelector('.status-dot');
     const statusText = document.querySelector('.status-text');
     const desc       = document.getElementById('statusDescription');
 
     if (online) {
-      if (pdot)       { pdot.className = 'plugin-dot connected'; pdot.title = 'Plugin connected'; }
-      if (statusDot)  statusDot.className  = 'status-dot connected';
+      if (statusDot)  statusDot.className   = 'status-dot connected';
       if (statusText) statusText.textContent = 'Connected';
       if (desc)       desc.textContent = 'Plugin is active. Commands will execute in Roblox Studio.';
     } else {
-      if (pdot)       { pdot.className = 'plugin-dot disconnected'; pdot.title = 'Plugin disconnected'; }
-      if (statusDot)  statusDot.className  = 'status-dot disconnected';
+      if (statusDot)  statusDot.className   = 'status-dot disconnected';
       if (statusText) statusText.textContent = 'Disconnected';
       if (desc)       desc.textContent = 'Plugin not detected. Make sure Roblox Studio is running and the plugin is installed.';
-      document.getElementById('currentGameInfo')?.classList.add('hidden');
-    }
-  }
-
-  _updateGameInfo(game) {
-    this.currentGame = game;
-    const banner     = document.getElementById('gameInfoBanner');
-    const bannerText = document.getElementById('gameInfoText');
-    const gameInfo   = document.getElementById('currentGameInfo');
-    const gameDetail = document.getElementById('gameDetails');
-
-    if (game && (game.gameName || game.placeId)) {
-      const label = game.gameName || `Place ${game.placeId}`;
-      if (banner)     { banner.classList.remove('hidden'); }
-      if (bannerText) bannerText.textContent = label;
-      if (gameInfo)   gameInfo.classList.remove('hidden');
-      if (gameDetail) gameDetail.innerHTML = `
-        <div class="game-detail-row"><span>Name</span><span>${game.gameName || '—'}</span></div>
-        <div class="game-detail-row"><span>Place ID</span><span>${game.placeId || '—'}</span></div>
-      `;
-    } else {
-      if (banner)   banner.classList.add('hidden');
-      if (gameInfo) gameInfo.classList.add('hidden');
     }
   }
 
@@ -140,7 +86,6 @@ class VortexDQUI {
       const res  = await fetch('/api/health');
       const data = await res.json();
       this._setPluginStatus(data.pluginOnline);
-      if (data.currentGame) this._updateGameInfo(data.currentGame);
     } catch (_) {}
   }
 
@@ -162,7 +107,6 @@ class VortexDQUI {
 
     document.getElementById('clearChat').addEventListener('click', () => this.clearChat());
     document.getElementById('exportErrors').addEventListener('click', () => this.exportErrors());
-    document.getElementById('clearErrors').addEventListener('click', () => this.clearErrors());
     document.getElementById('save-keys-btn').addEventListener('click', () => this.saveSettings());
   }
 
@@ -182,7 +126,7 @@ class VortexDQUI {
     }
 
     this.addMessage('user', prompt);
-    this.userInput.value = '';
+    this.userInput.value  = '';
     this.setLoading(true);
     this.sendBtn.disabled = true;
 
@@ -201,11 +145,11 @@ class VortexDQUI {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
-      // Plugin was offline — commands generated but not sent
       if (data.pluginOffline) {
-        const aiMsg = data.message || 'I generated the commands but Roblox Studio isn\'t connected. Open Studio with the VortexDQ plugin active, then try again.';
+        const cmdCount = data.analysis?.commandCount ?? data.commands?.length ?? 0;
+        const aiMsg    = data.message || 'Commands generated but Studio isn\'t connected. Open Roblox Studio with the VortexDQ plugin active, then try again.';
         this.addMessage('ai', aiMsg, 'warning',
-          `⚠️ ${data.analysis?.commandCount ?? data.commands?.length ?? 0} commands ready — plugin offline`
+          `⚠️ ${cmdCount} command${cmdCount !== 1 ? 's' : ''} ready — plugin offline`
         );
         this.showToast('Plugin offline — commands not sent to Studio', 'error');
       } else if (data.success) {
@@ -224,7 +168,6 @@ class VortexDQUI {
         throw new Error(data.error || 'Execution failed');
       }
 
-      // Push to chat history for context
       this.chatHistory.push({ role: 'user',      content: prompt });
       this.chatHistory.push({ role: 'assistant', content: data.message || '' });
       if (this.chatHistory.length > 20) this.chatHistory = this.chatHistory.slice(-20);
@@ -283,7 +226,6 @@ class VortexDQUI {
 
       const report = data.report;
       let msg = `🔍 Security Scan — ${(report.status || 'unknown').toUpperCase()}\n\n${report.summary || ''}\n`;
-
       if (report.details && report.details.length > 0) {
         report.details.forEach(detail => {
           msg += `\n${detail.category}\n`;
@@ -315,7 +257,6 @@ class VortexDQUI {
 
     const text = document.createElement('div');
     text.className = 'message-text';
-    // Preserve newlines
     text.style.whiteSpace = 'pre-wrap';
     text.textContent = content;
     contentDiv.appendChild(text);
@@ -347,18 +288,22 @@ class VortexDQUI {
 
       data.available.forEach(model => {
         const card = document.createElement('div');
-        card.className = `model-card ${model.active ? 'active' : ''} ${model.enabled ? '' : 'disabled'}`;
+        card.className = `model-card ${model.active ? 'active' : ''} ${model.enabled ? '' : 'model-disabled'}`;
         card.dataset.model = model.name;
 
         card.innerHTML = `
           <div class="model-name">${model.label || model.name}</div>
-          <div class="model-tag">${model.cost}</div>
           <div class="model-stats">
             <div class="model-stat"><span>Speed</span><span>${Math.round(model.speed * 100)}%</span></div>
             <div class="model-stat"><span>Quality</span><span>${Math.round(model.quality * 100)}%</span></div>
+            <div class="model-stat"><span>Type</span><span>${model.cost}</span></div>
           </div>
-          ${!model.enabled ? '<div class="model-locked">🔒 Set API key in Settings</div>' : ''}
+          ${!model.enabled ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">🔒 Add API key in Settings</div>' : ''}
         `;
+
+        if (model.enabled) {
+          card.addEventListener('click', () => this.switchModel(model.name));
+        }
 
         grid.appendChild(card);
       });
@@ -367,13 +312,12 @@ class VortexDQUI {
       tbody.innerHTML = '';
       data.available.forEach(model => {
         const row = document.createElement('tr');
-        row.style.opacity = model.enabled ? '1' : '0.45';
+        row.style.opacity = model.enabled ? '1' : '0.4';
         row.innerHTML = `
           <td><strong>${model.label || model.name}</strong>${model.active ? ' ✓' : ''}</td>
           <td>${Math.round(model.speed * 100)}%</td>
           <td>${Math.round(model.quality * 100)}%</td>
           <td>${model.cost}</td>
-          <td>${model.enabled ? '✅ Ready' : '🔒 No key'}</td>
         `;
         tbody.appendChild(row);
       });
@@ -413,8 +357,6 @@ class VortexDQUI {
       document.getElementById('totalExecutions').textContent = se.totalExecutions;
       document.getElementById('successRate').textContent     = se.successRate;
       document.getElementById('avgCommands').textContent     = se.avgCommandsPerExecution ?? 0;
-      const avgDurEl = document.getElementById('avgDuration');
-      if (avgDurEl) avgDurEl.textContent = se.avgDuration;
       document.getElementById('activeConnections').textContent = data.connections;
 
       const execList = document.getElementById('recentExecList');
@@ -424,10 +366,10 @@ class VortexDQUI {
         item.className = 'execution-item';
         item.innerHTML = `
           <div>
-            <div>${exec.commandCount} command${exec.commandCount !== 1 ? 's' : ''}</div>
+            <div>${exec.commandCount} commands</div>
             <div class="execution-time">${new Date(exec.ts).toLocaleTimeString()}</div>
           </div>
-          <div class="${exec.failed === 0 ? 'exec-ok' : 'exec-fail'}">${exec.succeeded}/${exec.commandCount} ok · ${exec.duration}ms</div>
+          <div>${exec.succeeded}/${exec.commandCount} success</div>
         `;
         execList.appendChild(item);
       });
@@ -451,17 +393,6 @@ class VortexDQUI {
       document.getElementById('severityMedium').textContent   = data.bySeverity.medium;
       document.getElementById('severityLow').textContent      = data.bySeverity.low;
 
-      // Error badge on nav
-      const badge = document.getElementById('errorBadge');
-      if (badge) {
-        if (data.totalErrors > 0) {
-          badge.textContent = data.totalErrors > 99 ? '99+' : data.totalErrors;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
-      }
-
       const errorsList = document.getElementById('commonErrors');
       errorsList.innerHTML = '';
       if (!data.mostCommon || data.mostCommon.length === 0) {
@@ -482,25 +413,14 @@ class VortexDQUI {
     }
   }
 
-  async clearErrors() {
-    if (!confirm('Clear all recorded errors?')) return;
-    try {
-      await fetch('/api/errors', { method: 'DELETE' });
-      await this.loadErrors();
-      this.showToast('Errors cleared', 'success');
-    } catch (e) {
-      this.showToast('Failed to clear errors', 'error');
-    }
-  }
-
   // ── Plugin connections ─────────────────────────────────────────────────────
   async loadConnections() {
     try {
       const response = await fetch('/api/status');
       const data     = await response.json();
 
-      const list = document.getElementById('connectionsList');
       this._setPluginStatus(data.pluginOnline);
+      const list = document.getElementById('connectionsList');
 
       if (!data.connections || data.connections.length === 0) {
         list.innerHTML = '<p class="no-connections">No connections yet</p>';
@@ -516,8 +436,6 @@ class VortexDQUI {
           `;
           list.appendChild(item);
         });
-
-        if (data.currentGame) this._updateGameInfo(data.currentGame);
       }
     } catch (error) {
       console.error('Failed to load connections:', error);
@@ -547,7 +465,6 @@ class VortexDQUI {
     }
   }
 
-  // ── Export errors ──────────────────────────────────────────────────────────
   async exportErrors() {
     try {
       const response = await fetch('/api/errors/export?format=csv');
@@ -562,7 +479,6 @@ class VortexDQUI {
     }
   }
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
   showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
@@ -646,7 +562,6 @@ class VortexDQUI {
   }
 }
 
-// Init
 document.addEventListener('DOMContentLoaded', () => {
   window.vortexUI = new VortexDQUI();
 });
