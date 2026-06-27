@@ -4,6 +4,7 @@ const express = require('express');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const cors = require('cors');
 const WebSocketManager = require('./websocket');
 const ModelRouter = require('./models');
 const CommandEngine = require('./commandEngine');
@@ -19,6 +20,7 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 7777;
 
+app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, '../ui')));
 
